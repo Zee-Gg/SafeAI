@@ -1,0 +1,4 @@
+# Keep Unix line endings (LF) in every text file, even on Windows.
+# Prettier expects LF; without this, git could convert files to CRLF and format:check would fail.
+* text=auto eol=lf
+*.png binary

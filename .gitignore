@@ -1,0 +1,13 @@
+# Files git should never track.
+# Dependencies, build output, WXT's generated folder (which also holds the dev Chrome
+# profile with your ChatGPT login — never commit that!) and secret .env files.
+node_modules/
+.output/
+.wxt/
+dist/
+*.log
+.env
+.env.*
+web-ext.config.ts
+.DS_Store
+Thumbs.db

@@ -1,0 +1,6 @@
+# Tells pnpm which folders are packages in this monorepo.
+# apps/*     = things we ship (the Chrome extension).
+# packages/* = code shared between apps (design tokens, message types).
+packages:
+  - apps/*
+  - packages/*

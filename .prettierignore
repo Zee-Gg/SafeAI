@@ -1,0 +1,7 @@
+# Files Prettier should not format.
+# Build output, generated WXT files (incl. the dev Chrome profile in .wxt/) and the lockfile.
+node_modules/
+.output/
+.wxt/
+dist/
+pnpm-lock.yaml

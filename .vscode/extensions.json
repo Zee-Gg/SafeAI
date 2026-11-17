@@ -1,0 +1,8 @@
+// VS Code extensions recommended for this repo (VS Code offers to install them).
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss"
+  ]
+}
