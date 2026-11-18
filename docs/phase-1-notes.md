@@ -77,17 +77,36 @@ _Answer:_
 
 ## Main test results
 
-| Test                                                   | Expected                                          | Result (✅/❌ + notes) |
-| ------------------------------------------------------ | ------------------------------------------------- | ---------------------- |
-| Badge appears on chatgpt.com                           | "SafeAI · Observing", top-right                   |                        |
-| Observe mode: Enter sends normally                     | Sent unchanged; Last intercept = observe, Success |                        |
-| Observe mode: send-arrow click is logged               | Last intercept updates                            |                        |
-| Toggle ON updates the badge instantly                  | "SafeAI · Test replace ON", no reload             |                        |
-| **Done-when test:** `email me at ali@test.com` + Enter | ChatGPT receives `email me at [EMAIL_1]`          |                        |
-| Same email twice + another email                       | `[EMAIL_1] … [EMAIL_2] … [EMAIL_1]`               |                        |
-| Message without emails (replace mode)                  | Sent unchanged                                    |                        |
-| Popup status on another website                        | "Open chatgpt.com to start"                       |                        |
-| Production build (Load unpacked) works the same        | Same results, no `[SafeAI]` lines in the Console  |                        |
+Write ✅ or ❌ in the Result column. Details for each test are listed under the table.
+
+| #   | Test                | Expected                        | Result |
+| --- | ------------------- | ------------------------------- | ------ |
+| 1   | Badge appears       | "SafeAI · Observing", top-right |        |
+| 2   | Observe: Enter      | Sends unchanged, gets logged    |        |
+| 3   | Observe: send arrow | Gets logged                     |        |
+| 4   | Toggle ON           | Badge says "Test replace ON"    |        |
+| 5   | **Done-when test**  | ChatGPT gets `[EMAIL_1]`        |        |
+| 6   | Repeated emails     | `[EMAIL_1] [EMAIL_2] [EMAIL_1]` |        |
+| 7   | No emails (replace) | Sends unchanged                 |        |
+| 8   | Popup on other site | "Open chatgpt.com to start"     |        |
+| 9   | Production build    | Same results, no SafeAI logs    |        |
+
+**Test details**
+
+1. Open chatgpt.com in the `pnpm dev` window. The pill sits at the top-right.
+2. Toggle OFF. Type `hello test` and press Enter. Popup → Last intercept: Mode observe, Success.
+3. Toggle OFF. Type anything and click the send arrow. Last intercept updates.
+4. Switch the toggle ON in the popup. The page doesn't need a reload.
+5. Toggle ON. Send `email me at ali@test.com`. ChatGPT shows `email me at [EMAIL_1]`.
+6. Toggle ON. Send `a@x.com and b@y.com and a@x.com`.
+7. Toggle ON. Send `hello`. It arrives unchanged.
+8. Open the popup while any non-ChatGPT website is the active tab.
+9. Run `pnpm build`, then Load unpacked `apps/extension/.output/chrome-mv3`. Repeat
+   test 5 with F12 → Console open: there should be no `[SafeAI]` lines.
+
+**Notes on any ❌:**
+
+-
 
 ## Anything else I noticed
 

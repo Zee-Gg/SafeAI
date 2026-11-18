@@ -1,6 +1,11 @@
 // VS Code settings for this repo: Prettier formats on save, ESLint auto-fixes on save,
 // and VS Code uses the repo's own TypeScript version (not its built-in one).
+// Markdown files don't wrap long lines, so each table row stays on one line and the
+// columns line up (wide tables scroll sideways instead of breaking apart).
 {
+  "[markdown]": {
+    "editor.wordWrap": "off"
+  },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
