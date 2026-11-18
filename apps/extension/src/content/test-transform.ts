@@ -5,7 +5,7 @@
 */
 
 // A simple email pattern: name@domain.tld. Good enough for a test; Phase 2 replaces it.
-const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const EMAIL_PATTERN = /[\w.%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 /**
  * Replaces each email with [EMAIL_n]. The same email (ignoring upper/lower case) always gets

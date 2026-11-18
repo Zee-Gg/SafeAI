@@ -1,0 +1,10 @@
+// TypeScript settings for @safeai/detection.
+// The "lib" list deliberately has NO "DOM": code that touches window/document doesn't compile,
+// which enforces the "pure engine" rule at the compiler level (ESLint enforces it too).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"]
+  },
+  "include": ["src", "tests", "bench", "vitest.config.ts"]
+}

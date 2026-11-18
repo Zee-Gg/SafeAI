@@ -1,0 +1,25 @@
+{
+  "//": "SafeAI detection engine: finds sensitive data in text according to a policy. Pure TypeScript: no DOM, no chrome APIs, no network, no logging.",
+  "name": "@safeai/detection",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "bench": "vitest bench --run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@safeai/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "5.1.0",
+    "safe-regex2": "^5.1.2",
+    "vitest": "5.1.0"
+  }
+}
