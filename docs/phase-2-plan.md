@@ -328,6 +328,29 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
 - **Catches:** `+92 300 1234567`, `0300-1234567` (PK default), `+1 (415) 555-0132`
 - **Must NOT catch:** `2026-11-18`, `2026`, `1.2.3`, `$1,234.56`, `#10023`, `4242 4242 4242 4242`
 - **Bundle size:** content-script size reported before and after.
+- _As built (M3):_
+  - **The library already rejects** dates, years, versions, prices, `#order` numbers, card
+    numbers, IP addresses, invoice numbers, timestamps and CNICs (checked with a probe before
+    writing the detector). Our filters are a second safety net: a `#` or currency sign/code
+    (`$ £ € ¥ Rs PKR USD AED`) just before the number; date shapes; 13–19 digits passing Luhn.
+  - Fewer than 7 national digits → skipped. `ruleId` is `phone.international` (high) or
+    `phone.national` (medium). `+…` or `00…` counts as international. Extensions
+    (`ext. 22`) stay part of the match.
+  - **Country codes:** phones use ISO codes (`GB`), while the policy's ID list uses `UK`. If
+    `defaultPhoneCountry` isn't a supported phone country, only `+international` numbers are
+    found.
+  - **Bundle size** (engine bundled and minified like a production build; the content script
+    doesn't use the engine until M8):
+
+    | Engine                   | Minified    | Gzip       |
+    | ------------------------ | ----------- | ---------- |
+    | before libphonenumber-js | 119.1 kB    | 29.5 kB    |
+    | after (with "max")       | 399.2 kB    | 92.7 kB    |
+    | **added**                | **+280 kB** | **+63 kB** |
+
+    The README's "about 145 kB" is the metadata alone; the rest is the parsing and matching
+    code. The file is loaded from disk, not downloaded. The content script is 330 kB today;
+    M8 will report its real size once it uses the engine.
 
 ### credit-card (`credit-card.ts`), high
 
@@ -336,6 +359,12 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
   UnionPay 62; JCB 3528–3589; Diners 36/38/300–305).
 - **Catches:** `4242 4242 4242 4242`, `5555-5555-5555-4444`, `378282246310005`
 - **Must NOT catch:** `1234 5678 9012 3456` (fails Luhn), tracking numbers, order numbers
+- _As built (M3):_ the candidate regex has two shapes. **4-4-4-(1–7)** digits covers
+  Visa/Mastercard groups and 13–19 digits with no separators. **4-6-(4–5)** covers Amex and
+  Diners grouping. The separator must be the **same** every time (one space, one dash or none),
+  so `4242 4242-4242 4242` and double spaces are rejected. `cardNetwork(digits)` returns the
+  network name, which goes into `ruleId` (e.g. `credit_card.visa`). Tested with Stripe's
+  official test numbers for every network.
 
 ### bank-account (`bank-account.ts`)
 
@@ -345,6 +374,18 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
 - **Account number (medium):** only after "account number", "acct", "a/c", "account no",
   "IBAN", followed by 8–20 digits. **Only the number** is caught. Catches
   `Account number: 0123456789` → `0123456789`. Must NOT catch `account 2024 summary`.
+- _As built (M3):_
+  - **IBAN:** the candidate is 2 capital letters + 2 digits + 11–40 capitals/digits/spaces, and
+    only uppercase, as IBANs are officially written. If it ran on into following capital words
+    (`… 7654 32 THANKS`), it's trimmed back one space-separated group at a time until it
+    validates (`findValidIban`). The validator also checks the exact **length per country**
+    from the SWIFT registry.
+  - **Account number:** the number may contain single spaces or dashes (`0123 4567 8901`,
+    `1234-5678-90`). It must have 8–20 digits and no double separators. Labels also accept
+    `acct no`, `a/c no.` and `acct #`.
+  - **Safety catch:** eslint-plugin-regexp flagged the first version of the label regex
+    (`\s*[#:-]?\s*`) as able to backtrack slowly on long runs of spaces. Rewritten as
+    `\s*(?:[#:-]\s*)?`, with a test proving 20,000 spaces stay fast.
 
 ### national-id (`national-id.ts`), only for countries in `policy.nationalIdCountries`
 
@@ -357,6 +398,19 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
 
 - **Must NOT catch:** `000-12-3456`, `666-12-3456`, `QQ 12 34 56 A`, `785-…`, any ID when its
   country is switched off.
+- _As built (M3):_
+  - The PK validator checks that the first digit is a **province code 1–7** (stricter than "no
+    leading 0").
+  - **Timestamps vs plain CNICs:** a plain 13-digit number that **starts with 1 and has no CNIC
+    word nearby** is skipped, because millisecond timestamps (`1731974400000`) look exactly like
+    that, and the policy would redact them. With context (`CNIC: 1…`) it's still caught
+    (medium).
+  - NINOs are matched in capitals only, as they're officially written.
+  - Exported validators: `validatePkCnic`, `validateUsSsn`, `validateUkNino`,
+    `validateAeEmiratesId`. `ruleId`s: `national_id.pk_cnic`, `national_id.pk_cnic_plain`,
+    `national_id.us_ssn`, `national_id.uk_nino`, `national_id.ae_emirates_id`.
+  - Test IDs are **assembled at runtime from pieces** (`tests/fixtures/fake-data.ts`), so no
+    complete ID-shaped value is written in the source.
 
 ### api-key (`api-key-patterns.ts` + `api-key.ts`), high
 

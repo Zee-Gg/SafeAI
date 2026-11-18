@@ -86,7 +86,9 @@ describe('detect()', () => {
   it('skips categories set to "allow" (and does not even run their detector)', () => {
     const policy = policyWith({ email: 'allow' });
     expect(detect(FAKE_EMAILS.simple, policy).detections).toEqual([]);
-    expect(prepareContext(policy, DETECTORS).enabledDetectors).toEqual([]);
+    const enabledIds = prepareContext(policy, DETECTORS).enabledDetectors.map((d) => d.id);
+    expect(enabledIds).not.toContain('email');
+    expect(enabledIds).toContain('phone'); // other detectors still run
   });
 
   it('sorts detections by position and counts them per category', () => {

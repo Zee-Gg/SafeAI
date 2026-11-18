@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@safeai/shared": "workspace:*"
+    "@safeai/shared": "workspace:*",
+    "libphonenumber-js": "^1.13.16"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "5.1.0",
