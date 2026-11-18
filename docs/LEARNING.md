@@ -23,6 +23,13 @@ it **sends a message** (`sendToBackground` in `src/lib/messaging.ts`). Each mess
 **Zod schema** in `packages/shared/src/messages.ts`, so both sides agree on its exact shape,
 and anything else is rejected.
 
+| Message         | Sent from → to              | What it carries                                                     |
+| --------------- | --------------------------- | ------------------------------------------------------------------- |
+| `PING`          | Popup → background          | Nothing. The reply has the lab counters and the worker's start time |
+| `GET_STATUS`    | Popup → background          | Nothing. The reply has the last intercept                           |
+| `LOG_INTERCEPT` | Content script → background | Metadata about one send attempt (never the text)                    |
+| `CONTENT_PING`  | Popup → content script      | Nothing. A reply means "SafeAI is running on this tab"              |
+
 **Privacy rule:** messages only carry _metadata_ (site, character count, how many items were
 replaced, method, time). The prompt text itself never leaves the ChatGPT tab.
 
@@ -30,64 +37,82 @@ replaced, method, time). The prompt text itself never leaves the ChatGPT tab.
 
 Our content script runs on chatgpt.com, but in an **isolated world**:
 
-- It **shares the page's HTML** (the DOM). It can find the input box, read its text and
-  listen to clicks.
-- It **does not share the page's JavaScript.** ChatGPT's variables and functions are
-  invisible to us, and ours are invisible to ChatGPT.
+| Shared with ChatGPT?                                | What it means for us                                                          |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| ✅ **The page's HTML** (the DOM)                    | We can find the input box, read its text and listen to clicks and key presses |
+| ❌ **The page's JavaScript** (variables, functions) | We can't call ChatGPT's code, and ChatGPT can't call ours                     |
 
 That's why we can't "call ChatGPT's send function". We can only do what a user does:
 press keys, click buttons, paste text.
 
-It's also why we never use `localStorage` in the content script. That storage belongs to
-chatgpt.com, so ChatGPT's own code could read it. We use `chrome.storage` instead, which only
-the extension can see (`src/lib/storage.ts`).
+It's also why we store data in `chrome.storage`, not in the page's storage:
+
+| Storage                                       | Who can read it            | Used by SafeAI?               |
+| --------------------------------------------- | -------------------------- | ----------------------------- |
+| `localStorage`, `sessionStorage`, `IndexedDB` | chatgpt.com's own code too | ❌ Never                      |
+| `chrome.storage` (via WXT's storage helper)   | Only our extension         | ✅ Yes (`src/lib/storage.ts`) |
 
 ### 3. Capture phase: getting there first
 
-When you press a key or click, the browser sends the event on a trip through the page:
+When you press a key or click, the browser sends the event on a trip through the page, first
+down to the element you touched and then back up:
 
-```
-document  →  …  →  the form  →  the input box        (1. CAPTURE: going down)
-document  ←  …  ←  the form  ←  the input box        (2. BUBBLE: coming back up)
-```
+| Phase      | Direction                                | Who listens here                                       |
+| ---------- | ---------------------------------------- | ------------------------------------------------------ |
+| 1. Capture | `document` → … → form → input box (down) | **SafeAI** (`addEventListener(…, true)` on `document`) |
+| 2. Target  | At the input box itself                  | The element's own listeners                            |
+| 3. Bubble  | input box → form → … → `document` (up)   | Most code, including ChatGPT's                         |
 
-Most code, including ChatGPT's, listens on the way **up**. We listen on `document` on the
-way **down** (the third argument `true` in `addEventListener(…, true)`), so **we run first**.
-In replace mode we then call:
+Because we listen on the way **down**, **we run first**. In replace mode we then call:
 
-- `preventDefault()`: "browser, don't do your normal thing" (e.g. submitting a form);
-- `stopImmediatePropagation()`: "nobody else gets this event", so ChatGPT never sees the Enter.
+| Call                         | What it tells the browser                                      |
+| ---------------------------- | -------------------------------------------------------------- |
+| `preventDefault()`           | "Don't do your normal thing" (e.g. submit a form)              |
+| `stopImmediatePropagation()` | "Nobody else gets this event", so ChatGPT never sees the Enter |
 
 We listen on `document` rather than on the input box itself because ChatGPT is a
 **single-page app**: when you switch chats it throws away the input box and makes a new one.
 A listener on `document` keeps working. This is called **event delegation**
 (`src/content/interceptor.ts`).
 
-Shift+Enter is left alone (it makes a new line), and so is Enter while typing with an
-**IME** (Chinese/Japanese input), where Enter picks a character (`event.isComposing`).
+Which key presses count as "send":
+
+| Key press                                      | Treated as send? | Why                                                |
+| ---------------------------------------------- | ---------------- | -------------------------------------------------- |
+| Enter                                          | ✅ Yes           | ChatGPT's normal send                              |
+| Shift + Enter                                  | ❌ No            | Makes a new line                                   |
+| Enter while typing with an IME (`isComposing`) | ❌ No            | In Chinese/Japanese input, Enter picks a character |
+| Click on the send arrow (or its icon)          | ✅ Yes           | Same as Enter                                      |
 
 ### 4. Why changing ChatGPT's text needs a special trick
 
 ChatGPT's input box is a **ProseMirror** editor. ProseMirror keeps its **own copy** of your
-text in JavaScript memory; what you see on screen is just a drawing of that copy.
+text in JavaScript memory; what you see on screen is just a drawing of that copy. ChatGPT
+sends the text from that copy.
 
-- If we set `composer.textContent = "new text"`, we only change the _drawing_. ProseMirror
-  ignores it or redraws the old text, and ChatGPT sends the **original**. That would leak
-  exactly what we wanted to hide.
-- So we change the text **the way a user would**: select everything, then
-  `document.execCommand("insertText", …)`, which acts like typing. If that doesn't work, we
-  simulate a **paste**. Both fire the real editing events ProseMirror listens to, so it
-  updates its own copy.
-- `execCommand` is officially "deprecated", but it's still the most reliable way to drive
-  rich editors.
+| Way to change the text                                      | What happens                                                                | Used?         |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------- | ------------- |
+| `composer.textContent = "new text"`                         | Only the drawing changes. ChatGPT sends the **original**, a leak            | ❌ Never      |
+| `document.execCommand("insertText", …)` after selecting all | Acts like typing. ProseMirror sees real editing events and updates its copy | ✅ Strategy 1 |
+| A simulated **paste** event with the new text               | Acts like pasting. ProseMirror updates its copy                             | ✅ Strategy 2 |
+
+`execCommand` is officially "deprecated", but it's still the most reliable way to drive rich
+editors.
 
 **Trust, but verify:** after each attempt we **read the text back**. Only if it matches do we
 send. If not: **we don't send at all**, and the badge turns red. This is SafeAI's core safety
 rule: _if we can't protect it, we don't send it_ (`src/content/editor-writer.ts`).
 
-To send the protected version, we turn on a one-time **bypass** (`allowNextSubmit()`) so our
-own interceptor doesn't block our own click, then click ChatGPT's send button. When ChatGPT
-empties the input box, we know it really went.
+The whole replace flow, step by step:
+
+| Step | What SafeAI does                                                               | If it fails                                 |
+| ---- | ------------------------------------------------------------------------------ | ------------------------------------------- |
+| 1    | Blocks your Enter/click before ChatGPT sees it                                 | —                                           |
+| 2    | Reads the text and swaps emails for `[EMAIL_1]`, `[EMAIL_2]`…                  | —                                           |
+| 3    | Writes the new text into the editor (insertText, then paste)                   | Red badge: **not sent**                     |
+| 4    | Reads the editor back to check                                                 | Red badge: **not sent**                     |
+| 5    | Turns on a one-time **bypass** (`allowNextSubmit()`) and clicks ChatGPT's Send | Falls back to pressing Enter in the editor  |
+| 6    | Waits for ChatGPT to empty the input box, which proves it was sent             | Red badge: protected, but please press Send |
 
 ### 5. The service worker forgets things
 
@@ -97,26 +122,30 @@ scratch**: the whole file runs from the top.
 
 The popup's **Service worker lab** shows this:
 
-- `memoryCount` is a normal variable. After a sleep it's back to 0, so the next ping shows 1.
-- `storageCount` is saved in `chrome.storage`, so it **survives** the sleep and keeps counting.
-- "Started X ago" resets too, because `workerStartedAt = Date.now()` runs again on wake-up.
+| Value shown       | Where it lives                    | After the worker sleeps             |
+| ----------------- | --------------------------------- | ----------------------------------- |
+| **Memory**        | A normal variable (`memoryCount`) | Back to 0, so the next ping shows 1 |
+| **Storage**       | `chrome.storage` (`storageCount`) | **Survives**, keeps counting        |
+| **Started X ago** | `workerStartedAt = Date.now()`    | Resets: the file ran again          |
 
 **Lesson:** never keep important state only in a service-worker variable. Put it in storage.
 
 Two related rules:
 
-- **Add message listeners immediately, at the top level.** When Chrome wakes the worker just
-  to deliver a message, it only hands that message to listeners that exist once the file's
-  first run finishes. A listener added after an `await` would miss it (`background.ts`).
-- **The worker can stay awake while you look at it.** An open DevTools window on the worker,
-  or WXT's hot-reload connection in dev mode, can keep it from sleeping. Test the lifecycle
-  lab with DevTools closed, or with a production build.
+| Rule                                                    | Why                                                                                                                                                                                   |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Add message listeners immediately, at the top level** | When Chrome wakes the worker just to deliver a message, it only hands it to listeners that exist once the first run finishes. One added after an `await` misses it (`background.ts`). |
+| **Test sleep with nothing watching the worker**         | An open DevTools window on the worker, or WXT's hot-reload connection in dev mode, can keep it awake. Close DevTools, or use a production build.                                      |
 
 ### 6. Shadow DOM: a walled garden for our badge
 
 The badge lives inside a **Shadow DOM**, a private mini-page attached to chatgpt.com.
-ChatGPT's CSS can't reach in and break our badge, and our CSS can't leak out and break
-ChatGPT. WXT's `createShadowRootUi` sets this up.
+WXT's `createShadowRootUi` sets this up.
+
+| Without Shadow DOM                             | With Shadow DOM                |
+| ---------------------------------------------- | ------------------------------ |
+| ChatGPT's CSS could change how our badge looks | ChatGPT's CSS can't reach in   |
+| Our CSS (Tailwind) could break ChatGPT's page  | Our CSS stays inside the badge |
 
 One surprise: Tailwind gives some internal variables their starting values with a CSS feature
 called `@property`, and **Chrome ignores `@property` inside a Shadow DOM**. So the badge's
@@ -125,11 +154,11 @@ border didn't draw at first. We fixed it by setting those values by hand in
 
 ### 7. Smaller lessons
 
-- **Design tokens:** every colour, size, radius and shadow is defined once in
-  `packages/design/src/tokens.css`. Tailwind turns the names into classes (`bg-primary-600`).
-- **px, not rem, for UI inside other sites:** `rem` follows the _website's_ font size.
-- **Chrome needs Developer mode** to run unpacked extensions (our dev builds).
-- **Selectors are guesses:** ChatGPT changes its HTML often. Every selector lives in one place
-  (`src/adapters/chatgpt.ts`), each with fallbacks, so a fix is a one-line change.
-- **Tool versions move fast:** ESLint 10 and TypeScript 7 were out, but plugins didn't support
-  them yet, so we pinned ESLint 9 and TypeScript 6.0 (see `DECISIONS.md`).
+| Lesson                                     | What it means                                                                                                      | Where                            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| **Design tokens**                          | Every colour, size, radius and shadow is defined once. Tailwind turns the names into classes (`bg-primary-600`)    | `packages/design/src/tokens.css` |
+| **px, not rem, for UI inside other sites** | `rem` follows the _website's_ font size, so our badge could change size                                            | `tokens.css`                     |
+| **Chrome needs Developer mode**            | Recent Chrome won't run unpacked extensions (our dev builds) without it                                            | `chrome://extensions`            |
+| **Selectors are guesses**                  | ChatGPT changes its HTML often. Every selector lives in one place with fallbacks, so a fix is one line             | `src/adapters/chatgpt.ts`        |
+| **Tool versions move fast**                | ESLint 10 and TypeScript 7 were out, but plugins didn't support them yet, so we pinned ESLint 9 and TypeScript 6.0 | `docs/DECISIONS.md`              |
+| **Badges must not block the page**         | The badge first covered ChatGPT's buttons. Now it sits top-right and is click-through                              | `src/ui/StatusBadge.tsx`         |
