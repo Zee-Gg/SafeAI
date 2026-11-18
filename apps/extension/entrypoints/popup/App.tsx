@@ -1,6 +1,6 @@
 /*
-  The popup screen: header, status, last intercept, service-worker lab and footer
-  (the test-replace toggle is added in M6). Every colour, radius and shadow comes from the tokens.
+  The popup screen: header, status, test-replace toggle, last intercept, service-worker lab and
+  footer. Every colour, radius and shadow comes from the design tokens.
   Accessibility: real <button>s, visible focus rings, live regions for changing values.
 */
 import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
@@ -14,7 +14,7 @@ import {
 import { browser } from 'wxt/browser';
 
 import { pingContentScript, sendToBackground } from '../../src/lib/messaging';
-import { lastInterceptItem } from '../../src/lib/storage';
+import { lastInterceptItem, settingsItem } from '../../src/lib/storage';
 
 /* ---------- Helpers ---------- */
 
@@ -204,6 +204,57 @@ function StatusCard() {
   );
 }
 
+/** The "Test replace mode" switch. Saved in storage; ChatGPT tabs react instantly (they watch it). */
+function TestModeToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null); // null = still loading
+
+  useEffect(() => {
+    void settingsItem.getValue().then((settings) => setEnabled(settings.testReplaceMode));
+    return settingsItem.watch((settings) => setEnabled(settings?.testReplaceMode ?? false));
+  }, []);
+
+  function toggle() {
+    if (enabled === null) return;
+    void settingsItem.setValue({ testReplaceMode: !enabled });
+  }
+
+  const on = enabled === true;
+  return (
+    <section
+      aria-label="Test replace mode"
+      className="flex items-center justify-between gap-4 rounded-lg border border-neutral-200 bg-neutral-0 px-4 py-3 shadow-sm"
+    >
+      <div>
+        <p id="test-mode-label" className="text-sm font-semibold text-neutral-900">
+          Test replace mode
+        </p>
+        <p id="test-mode-help" className="text-xs text-neutral-500">
+          Replaces emails with [EMAIL_1] before sending
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-labelledby="test-mode-label"
+        aria-describedby="test-mode-help"
+        disabled={enabled === null}
+        onClick={toggle}
+        className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors duration-(--duration-fast) ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+          on ? 'bg-primary-600 hover:bg-primary-700' : 'bg-neutral-300 hover:bg-neutral-400'
+        }`}
+      >
+        <span
+          aria-hidden="true"
+          className={`inline-block size-5 rounded-full bg-neutral-0 shadow-sm transition-transform duration-(--duration-fast) ease-out motion-reduce:transition-none ${
+            on ? 'translate-x-4.5' : 'translate-x-0.5'
+          }`}
+        />
+      </button>
+    </section>
+  );
+}
+
 /** Loads the last intercept once, then keeps it up to date when storage changes. */
 function useLastIntercept(): { loaded: boolean; record: InterceptRecord | null } {
   const [state, setState] = useState<{ loaded: boolean; record: InterceptRecord | null }>({
@@ -290,6 +341,7 @@ export function App() {
       <Header />
       <main className="flex flex-col gap-3 p-4">
         <StatusCard />
+        <TestModeToggle />
         <LastInterceptCard />
         <WorkerLabCard />
       </main>

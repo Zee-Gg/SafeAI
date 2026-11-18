@@ -213,14 +213,22 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
     3. `count > 0` → `replaceComposerText()`. On success → `allowNextSubmit()` → click send → badge "Replaced N emails" → `LOG_INTERCEPT`.
     4. Replace failed → **don't send**. Badge error: "Couldn't protect this message — not sent". `LOG_INTERCEPT` with `success: false`.
 - `ctx.onInvalidated` → `stopInterceptor()` and removes the message listener (cleans up when the extension reloads).
-- **Built in M5:** observe mode only. `getMode` always returns `"observe"` until M6 connects the toggle. Also:
+- **As built (M5 + M6):**
   - answers the popup's `CONTENT_PING` with `{ site: "chatgpt" }`;
   - skips empty messages (Enter in an empty box doesn't send);
-  - `reportSelectors()` (dev only) waits up to 15 s for ChatGPT's input box to appear, because it's a single-page app, then shows `dev · input ✓ · send –` above the badge. The send button only exists once you type, so `–` there is normal at first.
+  - `reportSelectors()` (dev only) waits up to 15 s for ChatGPT's input box to appear, because it's a single-page app, then shows `dev · input ✓ · send –` under the badge. The send button only exists once you type, so `–` there is normal at first.
+  - reads `settings.testReplaceMode` at start and **watches** it. A local `mode` variable is what the interceptor's `getMode()` reads, so flipping the popup toggle takes effect immediately. The badge switches between "Observing" and "Test replace ON" at the same moment.
+  - `createSendFlow(adapter, badge)` holds the flow:
+    - `observe()`: records metadata only.
+    - `replaceAndSend()`: the replace steps above. A `busy` flag makes one replace run at a time; extra Enter presses during a replace are blocked and ignored.
+    - `resend()`: waits 50 ms so ChatGPT notices the new text, calls `allowNextSubmit()`, then clicks ChatGPT's send button. If the button is missing or disabled, or the click didn't send, it falls back to a synthetic Enter in the editor.
+    - **Send confirmation:** ChatGPT empties the input box after sending, so `waitForEmptyComposer()` waits up to 1.5 s for that. No empty box means "not sent".
+  - Badge messages: success "Replaced N email(s)". Errors: "Couldn't protect this message — not sent" (replace failed), "Protected, but not sent — please press Send" (the protected text is in the box but the re-send failed, so nothing leaks), "Couldn't find ChatGPT's input box — not sent".
+  - `logIntercept(fields)`: one helper that sends the `LOG_INTERCEPT` metadata. `charCount` is the **original** text's length.
 
 **`entrypoints/popup/index.html`**: page shell, loads `main.tsx`.
 **`entrypoints/popup/main.tsx`**: imports the Geist fonts (`@fontsource-variable/geist`, `geist-mono`) and `ui.css`, then mounts `<App />` in `#root`.
-**`entrypoints/popup/App.tsx`**: the popup screen (see section 6). Internal components: `ShieldIcon` (inline SVG logo), `Header`, `StatusCard`, `TestModeToggle`, `LastInterceptCard`, `WorkerLabCard`, `Footer`, plus building blocks `Card` (white section with a title) and `Stat` (small labelled number). Helpers: `timeAgo(timestamp, now)`, `useNow()` (re-renders every second so "12s ago" keeps counting) and `useLastIntercept()` (loads via `GET_STATUS`, then live-updates by watching storage and re-validating with Zod). Built so far (M5): Header, StatusCard, LastInterceptCard, WorkerLabCard, Footer.
+**`entrypoints/popup/App.tsx`**: the popup screen (see section 6). Internal components: `ShieldIcon` (inline SVG logo), `Header`, `StatusCard`, `TestModeToggle`, `LastInterceptCard`, `WorkerLabCard`, `Footer`, plus building blocks `Card` (white section with a title) and `Stat` (small labelled number). Helpers: `timeAgo(timestamp, now)`, `useNow()` (re-renders every second so "12s ago" keeps counting) and `useLastIntercept()` (loads via `GET_STATUS`, then live-updates by watching storage and re-validating with Zod). All built as of M6 (order on screen: Header, StatusCard, TestModeToggle, LastInterceptCard, WorkerLabCard, Footer).
 
 ### apps/extension/src
 
@@ -261,6 +269,8 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
   - Neither works → `{ success: false, method: "none" }`.
 - Comments explain why `.textContent =` doesn't work: ProseMirror keeps its own copy of the document in JavaScript memory and only updates it when it sees real editing events. Changing the DOM directly is ignored or undone, and ChatGPT would send the old text.
 - Comparison ignores whitespace differences (ProseMirror can add/trim line breaks).
+- **As built (M6):** waits 30 ms after each strategy before reading back, so the editor can redraw. Also handles a plain `<textarea>` (older ChatGPT) via `.select()`. Helpers: `selectAllInside()` (like Ctrl+A inside the box), `textMatches()`, `normalize()`.
+- I couldn't test it on a real ProseMirror editor outside ChatGPT here (loading ProseMirror from a CDN was blocked in my environment). The read-back check means a failure can never leak text: it shows the red "not sent" badge instead. Question 2 in `phase-1-notes.md` records which method worked for you.
 
 **`content/test-transform.ts`**
 
@@ -346,7 +356,7 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 
 - Every colour, radius and shadow comes from the tokens. Hover, visible `focus-visible` ring (primary-600), disabled state on the Ping button while it's waiting.
 - `motion-reduce:` variants turn off transitions when the user prefers reduced motion.
-- The toggle is a real `<button role="switch" aria-checked>` with a label, so it's keyboard-accessible.
+- The toggle is a real `<button role="switch" aria-checked>` with a label, so it's keyboard-accessible. **Built in M6** as `TestModeToggle`. It reads and watches `settingsItem`, and is disabled while loading.
 
 **Status card (approved in M0, built in M5)**
 Without the `tabs` permission, Chrome hides `tab.url` from the popup. My plan uses no extra permission: the popup sends a tiny "are you there?" message to the content script on the current tab (`browser.tabs.sendMessage`). If it answers → "Active on ChatGPT"; if not → "Open chatgpt.com to start". This adds **one message type, `CONTENT_PING`**, with no text in it. The alternative is static text.
