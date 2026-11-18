@@ -5,9 +5,13 @@
 */
 import {
   BackgroundRequestSchema,
+  ContentPingReplySchema,
+  ContentPingRequestSchema,
   ErrorReplySchema,
   REPLY_SCHEMAS,
   type BackgroundRequest,
+  type ContentPingReply,
+  type ContentPingRequest,
   type ReplyFor,
 } from '@safeai/shared';
 import { browser } from 'wxt/browser';
@@ -48,4 +52,22 @@ export async function sendToBackground<T extends BackgroundRequest['type']>(
 
   // TypeScript can't link REPLY_SCHEMAS[T] to ReplyFor<T> by itself; the schema check above makes this safe.
   return { ok: true, data: parsed.data as ReplyFor<T> };
+}
+
+/**
+ * Asks the SafeAI content script in a tab "are you there?". Needs no extra permission.
+ * Fails (ok: false) when the tab has no SafeAI content script, e.g. any site other than ChatGPT.
+ */
+export async function pingContentScript(tabId: number): Promise<Result<ContentPingReply>> {
+  const message: ContentPingRequest = ContentPingRequestSchema.parse({ type: 'CONTENT_PING' });
+  let reply: unknown;
+  try {
+    reply = await browser.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    return { ok: false, error: `No SafeAI on this tab: ${toMessage(error)}` };
+  }
+  const parsed = ContentPingReplySchema.safeParse(reply);
+  return parsed.success
+    ? { ok: true, data: parsed.data }
+    : { ok: false, error: 'Unexpected reply to CONTENT_PING' };
 }

@@ -212,11 +212,15 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
     2. `count === 0` → `allowNextSubmit()` → click send.
     3. `count > 0` → `replaceComposerText()`. On success → `allowNextSubmit()` → click send → badge "Replaced N emails" → `LOG_INTERCEPT`.
     4. Replace failed → **don't send**. Badge error: "Couldn't protect this message — not sent". `LOG_INTERCEPT` with `success: false`.
-- `ctx.onInvalidated` → `stopInterceptor()` (cleans up when the extension reloads).
+- `ctx.onInvalidated` → `stopInterceptor()` and removes the message listener (cleans up when the extension reloads).
+- **Built in M5:** observe mode only. `getMode` always returns `"observe"` until M6 connects the toggle. Also:
+  - answers the popup's `CONTENT_PING` with `{ site: "chatgpt" }`;
+  - skips empty messages (Enter in an empty box doesn't send);
+  - `reportSelectors()` (dev only) waits up to 15 s for ChatGPT's input box to appear, because it's a single-page app, then shows `dev · input ✓ · send –` above the badge. The send button only exists once you type, so `–` there is normal at first.
 
 **`entrypoints/popup/index.html`**: page shell, loads `main.tsx`.
 **`entrypoints/popup/main.tsx`**: imports the Geist fonts (`@fontsource-variable/geist`, `geist-mono`) and `ui.css`, then mounts `<App />` in `#root`.
-**`entrypoints/popup/App.tsx`**: the popup screen (see section 6). Internal components: `ShieldIcon` (inline SVG logo), `Header`, `StatusCard`, `TestModeToggle`, `LastInterceptCard`, `WorkerLabCard`, `Footer`, plus building blocks `Card` (white section with a title) and `Stat` (small labelled number). Helpers: `timeAgo(timestamp, now)` and `useNow()` (re-renders every second so "12s ago" keeps counting). Built so far (M4): Header, WorkerLabCard, Footer.
+**`entrypoints/popup/App.tsx`**: the popup screen (see section 6). Internal components: `ShieldIcon` (inline SVG logo), `Header`, `StatusCard`, `TestModeToggle`, `LastInterceptCard`, `WorkerLabCard`, `Footer`, plus building blocks `Card` (white section with a title) and `Stat` (small labelled number). Helpers: `timeAgo(timestamp, now)`, `useNow()` (re-renders every second so "12s ago" keeps counting) and `useLastIntercept()` (loads via `GET_STATUS`, then live-updates by watching storage and re-validating with Zod). Built so far (M5): Header, StatusCard, LastInterceptCard, WorkerLabCard, Footer.
 
 ### apps/extension/src
 
@@ -226,8 +230,8 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 **`adapters/chatgpt.ts`**
 
 - `SELECTORS` object at the top, each entry a list of fallbacks (tried in order). **These are guesses that may change:**
-  - composer: `#prompt-textarea`, `div[contenteditable="true"].ProseMirror`, `form div[contenteditable="true"]`
-  - sendButton: `[data-testid="send-button"]`, `button[aria-label*="Send"]`, `form button[type="submit"]`
+  - composer: `#prompt-textarea`, `div.ProseMirror[contenteditable="true"]`, `form div[contenteditable="true"]`, `textarea[name="prompt-textarea"]`
+  - sendButton: `[data-testid="send-button"]`, `#composer-submit-button`, `button[aria-label="Send prompt"]`, `form button[type="submit"]`
 - `findFirst(selectors)`: returns the first element that matches.
 - `chatgptAdapter: SiteAdapter`:
   - `isSendButton` uses `el.closest(...)` so clicking the icon inside the button still counts.
@@ -240,9 +244,11 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
   - keydown: `Enter` without Shift, `!event.isComposing`, target inside the composer.
   - click: target is (or is inside) the send button.
   - submit: the form that contains the composer.
-  - If the bypass flag is set → clear it and let the event through untouched.
-  - **Observe mode:** don't block, just call `onAttempt(trigger)`.
-  - **Replace mode:** `preventDefault()` + `stopImmediatePropagation()`, then call `onAttempt(trigger)`.
+  - If the bypass flag is set → let the event through untouched, and clear the flag right after the current task, so the click → submit events of the _same_ re-send all pass.
+  - **Observe mode:** don't block, just call `onAttempt(trigger, mode)`.
+  - **Replace mode:** `preventDefault()` + `stopImmediatePropagation()`, then call `onAttempt(trigger, mode)`.
+  - One send can fire several events (Enter, then a form submit). Events within **300 ms** count as one attempt.
+  - Enter with Shift, Ctrl, Alt or Meta held is ignored (Shift+Enter = new line).
 - `allowNextSubmit()`: sets the one-time bypass flag (auto-clears after ~1 s as a safety net).
 - `stopInterceptor()`: removes all listeners.
 - _Small change from the prompt:_ `startInterceptor` also takes `getMode()` so it knows, at the moment of the event, whether to block. That's how observe mode doesn't block.
@@ -279,14 +285,16 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 
 **`ui/StatusBadge.tsx`**
 
-- `StatusBadge({ state, onDismiss })`: pill fixed bottom-right, `z-index: 2147483647`. States: `observing`, `replaceOn`, `success` (message, fades after 4 s), `error` (stays until clicked), plus a dev-only line for the selector check.
-- A small store (`createBadgeStore()`) lets the content script change the badge state from outside React.
+- `StatusBadge({ store })`: pill fixed bottom-right, `z-index: 2147483647`. States: `observing`, `replaceOn`, `success` (message, returns to the resting state after 4 s), `error` (a real button with `role="alert"` on its wrapper; stays until clicked), plus a dev-only line for the selector check. New content fades in over 200 ms (`starting:opacity-0`), with no motion if reduced motion is preferred.
+- `createBadgeStore()` returns a small controller: `setMode`, `showSuccess`, `showError`, `setDevInfo`, `dismiss`, plus `getView`/`subscribe` for React's `useSyncExternalStore`.
+- Shadows use `[box-shadow:var(--shadow-lg)]`, not `shadow-lg` (see `ui.css` below for why).
 - System font stack (custom fonts inside Shadow DOM come in Phase 3).
 
 **`lib/messaging.ts`**
 
 - `sendToBackground(message)`: **checks the outgoing message with Zod first** (so a message with an extra `text` field is never sent), sends it with `browser.runtime.sendMessage`, validates the reply with the matching schema, and returns `{ ok: true, data }` or `{ ok: false, error }` with a clear message.
 - `Result<T>` type: "either data or an error".
+- `pingContentScript(tabId)`: sends `CONTENT_PING` to a tab with `browser.tabs.sendMessage` (no permission needed). It fails when the tab has no SafeAI content script.
 
 **`lib/storage.ts`** (WXT `storage.defineItem`)
 
@@ -302,6 +310,7 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 **`styles/ui.css`**
 
 - `@import "tailwindcss";` + `@import "@safeai/design/tokens.css";`. Used by both the popup and the badge. No `@source` line is needed: Tailwind finds our classes automatically in `apps/extension`, and the shared packages contain no classes. Fonts are **not** loaded here. The popup's `main.tsx` imports Geist, and the badge uses system fonts.
+- **Shadow DOM fix (found in M5):** Tailwind gives its internal `--tw-*` variables starting values via `@property`, and Chrome ignores `@property` inside a Shadow DOM. Without a fix, `border` drew no border on the badge. `ui.css` sets those starting values by hand in `@layer base`. This was verified on chatgpt.com: the badge's computed border is `solid`.
 
 ---
 
@@ -339,7 +348,7 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 - `motion-reduce:` variants turn off transitions when the user prefers reduced motion.
 - The toggle is a real `<button role="switch" aria-checked>` with a label, so it's keyboard-accessible.
 
-**Status card: needs your choice (see "Questions for you")**
+**Status card (approved in M0, built in M5)**
 Without the `tabs` permission, Chrome hides `tab.url` from the popup. My plan uses no extra permission: the popup sends a tiny "are you there?" message to the content script on the current tab (`browser.tabs.sendMessage`). If it answers → "Active on ChatGPT"; if not → "Open chatgpt.com to start". This adds **one message type, `CONTENT_PING`**, with no text in it. The alternative is static text.
 
 ### Design tokens (`packages/design/src/tokens.css`, Tailwind v4 `@theme`)

@@ -1,14 +1,20 @@
 /*
-  The popup screen: header, service-worker lab and footer (status, toggle and last-intercept
-  cards are added in M5–M6). Every colour, radius and shadow comes from the design tokens.
+  The popup screen: header, status, last intercept, service-worker lab and footer
+  (the test-replace toggle is added in M6). Every colour, radius and shadow comes from the tokens.
   Accessibility: real <button>s, visible focus rings, live regions for changing values.
 */
 import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
 
-import type { PingReply } from '@safeai/shared';
+import {
+  getSiteName,
+  InterceptRecordSchema,
+  type InterceptRecord,
+  type PingReply,
+} from '@safeai/shared';
 import { browser } from 'wxt/browser';
 
-import { sendToBackground } from '../../src/lib/messaging';
+import { pingContentScript, sendToBackground } from '../../src/lib/messaging';
+import { lastInterceptItem } from '../../src/lib/storage';
 
 /* ---------- Helpers ---------- */
 
@@ -147,6 +153,127 @@ function WorkerLabCard() {
   );
 }
 
+type TabStatus = 'checking' | 'active' | 'inactive';
+
+/** Shows whether SafeAI is running on the current tab, by asking that tab's content script. */
+function StatusCard() {
+  const [status, setStatus] = useState<TabStatus>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // tab.id is available without the "tabs" permission (tab.url is not — hence the ping).
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      const result = tab?.id === undefined ? null : await pingContentScript(tab.id);
+      if (!cancelled) setStatus(result?.ok ? 'active' : 'inactive');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const view = {
+    checking: {
+      dot: 'bg-neutral-300 animate-pulse motion-reduce:animate-none',
+      title: 'Checking…',
+      hint: '',
+    },
+    active: {
+      dot: 'bg-success',
+      title: 'Active on ChatGPT',
+      hint: 'Watching messages you send on this tab.',
+    },
+    inactive: {
+      dot: 'bg-neutral-400',
+      title: 'Open chatgpt.com to start',
+      hint: 'SafeAI only runs on ChatGPT in Phase 1.',
+    },
+  }[status];
+
+  return (
+    <section
+      aria-label="Status"
+      className="flex items-start gap-3 rounded-lg border border-neutral-200 bg-neutral-0 px-4 py-3 shadow-sm"
+    >
+      <span aria-hidden="true" className={`mt-1.5 size-2 shrink-0 rounded-full ${view.dot}`} />
+      <div role="status">
+        <p className="text-sm font-semibold text-neutral-900">{view.title}</p>
+        {view.hint && <p className="text-xs text-neutral-500">{view.hint}</p>}
+      </div>
+    </section>
+  );
+}
+
+/** Loads the last intercept once, then keeps it up to date when storage changes. */
+function useLastIntercept(): { loaded: boolean; record: InterceptRecord | null } {
+  const [state, setState] = useState<{ loaded: boolean; record: InterceptRecord | null }>({
+    loaded: false,
+    record: null,
+  });
+
+  useEffect(() => {
+    void sendToBackground({ type: 'GET_STATUS' }).then((result) =>
+      setState({ loaded: true, record: result.ok ? result.data.lastIntercept : null }),
+    );
+    // Live updates: storage values aren't type-checked by Chrome, so validate them again here.
+    return lastInterceptItem.watch((value) => {
+      const parsed = InterceptRecordSchema.nullable().safeParse(value);
+      setState({ loaded: true, record: parsed.success ? parsed.data : null });
+    });
+  }, []);
+
+  return state;
+}
+
+/** Metadata about the most recent send attempt (never the text). */
+function LastInterceptCard() {
+  const now = useNow();
+  const { loaded, record } = useLastIntercept();
+
+  let body: ReactNode;
+  if (!loaded) {
+    body = <p className="text-sm text-neutral-500">Loading…</p>;
+  } else if (!record) {
+    body = (
+      <div className="rounded-md border border-dashed border-neutral-200 px-3 py-4 text-center">
+        <p className="text-sm font-medium text-neutral-700">No messages yet</p>
+        <p className="text-xs text-neutral-500">
+          Send a message on chatgpt.com and it shows up here.
+        </p>
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-sm text-neutral-700">
+            {getSiteName(record.site)} · {timeAgo(record.at, now)}
+          </p>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              record.success ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger'
+            }`}
+          >
+            {record.success ? 'Success' : 'Failed — not sent'}
+          </span>
+        </div>
+        <dl className="grid grid-cols-2 gap-2">
+          <Stat label="Characters" value={String(record.charCount)} />
+          <Stat label="Emails replaced" value={String(record.replacedCount)} />
+          <Stat label="Method" value={record.method} />
+          <Stat label="Mode" value={record.mode} />
+        </dl>
+      </>
+    );
+  }
+
+  return (
+    <Card title="Last intercept">
+      <div aria-live="polite">{body}</div>
+    </Card>
+  );
+}
+
 /** Bottom line with the extension version (read from the manifest). */
 function Footer() {
   return (
@@ -162,6 +289,8 @@ export function App() {
     <div className="flex flex-col">
       <Header />
       <main className="flex flex-col gap-3 p-4">
+        <StatusCard />
+        <LastInterceptCard />
         <WorkerLabCard />
       </main>
       <Footer />

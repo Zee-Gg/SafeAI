@@ -5,3 +5,28 @@
 */
 @import 'tailwindcss';
 @import '@safeai/design/tokens.css';
+
+/*
+  Shadow DOM fix. Tailwind gives its internal --tw-* variables their starting values with
+  @property, but Chrome ignores @property inside a Shadow DOM (where our badge lives). Without
+  this block, e.g. `border` draws no border there. These are the same starting values Tailwind
+  uses; utility classes still override them because "utilities" beats "base".
+*/
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    --tw-border-style: solid;
+    --tw-outline-style: solid;
+    --tw-shadow: 0 0 #0000;
+    --tw-shadow-alpha: 100%;
+    --tw-inset-shadow: 0 0 #0000;
+    --tw-inset-shadow-alpha: 100%;
+    --tw-ring-shadow: 0 0 #0000;
+    --tw-inset-ring-shadow: 0 0 #0000;
+    --tw-ring-offset-width: 0px;
+    --tw-ring-offset-color: #fff;
+    --tw-ring-offset-shadow: 0 0 #0000;
+  }
+}
