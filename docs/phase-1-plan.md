@@ -76,7 +76,7 @@
    - **Observe mode:** detects Enter/Send, lets the message go and logs metadata only.
    - **Test replace mode:** swaps emails for `[EMAIL_1]`… and then sends.
    - **Safety rule:** if we can't replace the text, we **don't send**.
-7. **In-page status badge:** a small pill in the bottom-right of ChatGPT, inside a Shadow DOM.
+7. **In-page status badge:** a small pill at the top-right of ChatGPT (just under its top bar), inside a Shadow DOM. _Changed in M5: bottom-right covered ChatGPT's input buttons._
 8. **Docs:** README, DECISIONS, LEARNING, phase-1-notes template.
 
 ---
@@ -285,7 +285,7 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 
 **`ui/StatusBadge.tsx`**
 
-- `StatusBadge({ store })`: pill fixed bottom-right, `z-index: 2147483647`. States: `observing`, `replaceOn`, `success` (message, returns to the resting state after 4 s), `error` (a real button with `role="alert"` on its wrapper; stays until clicked), plus a dev-only line for the selector check. New content fades in over 200 ms (`starting:opacity-0`), with no motion if reduced motion is preferred.
+- `StatusBadge({ store })`: pill fixed **top-right, 64 px from the top** (`top-16 right-4`, just under ChatGPT's top bar), `z-index: 2147483647`. It was bottom-right at first, but that covered ChatGPT's "Think" and send buttons. The badge is **click-through** (`pointer-events-none`), so it can never block a ChatGPT button. Only the error badge turns clicks back on so it can be dismissed. The dev line sits under the pill. States: `observing`, `replaceOn`, `success` (message, returns to the resting state after 4 s), `error` (a real button with `role="alert"` on its wrapper; stays until clicked), plus a dev-only line for the selector check. New content fades in over 200 ms (`starting:opacity-0`), with no motion if reduced motion is preferred.
 - `createBadgeStore()` returns a small controller: `setMode`, `showSuccess`, `showError`, `setDevInfo`, `dismiss`, plus `getView`/`subscribe` for React's `useSyncExternalStore`.
 - Shadows use `[box-shadow:var(--shadow-lg)]`, not `shadow-lg` (see `ui.css` below for why).
 - System font stack (custom fonts inside Shadow DOM come in Phase 3).

@@ -1,5 +1,6 @@
 /*
-  The small SafeAI pill shown at the bottom-right of chatgpt.com.
+  The small SafeAI pill shown at the top-right of chatgpt.com, just under ChatGPT's top bar
+  (bottom-right covered ChatGPT's input buttons). It is click-through, except the error state.
   It lives inside a Shadow DOM (created by the content script), so ChatGPT's CSS can't break it
   and ours can't leak into ChatGPT. A tiny "store" lets the content script change what it shows.
   Note: Tailwind's shadow-* utilities rely on @property, which doesn't work inside Shadow DOM,
@@ -112,12 +113,9 @@ export function StatusBadge({ store }: { store: BadgeStore }) {
   );
 
   return (
-    <div className="fixed right-4 bottom-4 z-2147483647 flex flex-col items-end gap-1 font-system">
-      {devInfo && (
-        <div className="rounded-sm bg-neutral-900/80 px-2 py-0.5 font-mono text-xs text-neutral-0">
-          {devInfo}
-        </div>
-      )}
+    // pointer-events-none: clicks pass straight through to ChatGPT, so the badge can never block
+    // a ChatGPT button. Only the error badge (which must be clickable) turns them back on.
+    <div className="pointer-events-none fixed top-16 right-4 z-2147483647 flex flex-col items-end gap-1 font-system">
       {state.kind === 'error' ? (
         // Errors stay until clicked, so the badge becomes a real button (keyboard accessible).
         // role="alert" on the wrapper makes screen readers announce the error immediately.
@@ -126,7 +124,7 @@ export function StatusBadge({ store }: { store: BadgeStore }) {
             type="button"
             onClick={() => store.dismiss()}
             title="Click to dismiss"
-            className={`${PILL} ${style.pill} cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger`}
+            className={`${PILL} ${style.pill} pointer-events-auto cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger`}
           >
             {content}
           </button>
@@ -134,6 +132,11 @@ export function StatusBadge({ store }: { store: BadgeStore }) {
       ) : (
         <div key={labelFor(state)} role="status" className={`${PILL} ${style.pill}`}>
           {content}
+        </div>
+      )}
+      {devInfo && (
+        <div className="rounded-sm bg-neutral-900/80 px-2 py-0.5 font-mono text-xs text-neutral-0">
+          {devInfo}
         </div>
       )}
     </div>
