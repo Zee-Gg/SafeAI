@@ -1,0 +1,6 @@
+// TypeScript settings for the extension.
+// Combines WXT's generated config (paths, auto-import types, which files to include)
+// with our strict repo-wide settings. Later entries in "extends" win.
+{
+  "extends": ["./.wxt/tsconfig.json", "../../tsconfig.base.json"]
+}

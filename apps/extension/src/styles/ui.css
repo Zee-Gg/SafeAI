@@ -1,0 +1,7 @@
+/*
+  Stylesheet for all SafeAI UI: the popup and the in-page badge on chatgpt.com.
+  Loads Tailwind, then our design tokens (which replace Tailwind's default colours).
+  Fonts are NOT loaded here — the popup imports Geist itself; the badge uses system fonts for now.
+*/
+@import 'tailwindcss';
+@import '@safeai/design/tokens.css';

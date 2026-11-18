@@ -1,6 +1,7 @@
 # Prettier formatting rules for the whole repo (YAML format, so comments are allowed).
 # prettier-plugin-tailwindcss sorts Tailwind classes into a standard order.
-# It must stay LAST in "plugins". In M3 we add "tailwindStylesheet" pointing at our CSS.
+# It must stay LAST in "plugins". "tailwindStylesheet" tells it where our Tailwind setup + tokens live.
+tailwindStylesheet: ./apps/extension/src/styles/ui.css
 singleQuote: true
 semi: true
 trailingComma: all
