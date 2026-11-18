@@ -1,0 +1,10 @@
+{
+  "//": "SafeAI design tokens (colours, fonts, radius, shadows, spacing, motion) as one Tailwind v4 CSS file.",
+  "name": "@safeai/design",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./src/tokens.css"
+  }
+}

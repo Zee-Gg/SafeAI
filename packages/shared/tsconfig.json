@@ -1,0 +1,6 @@
+// TypeScript settings for @safeai/shared.
+// Reuses the strict repo-wide settings and only checks files in src/.
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src"]
+}

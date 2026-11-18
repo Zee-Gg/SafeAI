@@ -1,0 +1,16 @@
+{
+  "//": "Code shared by every part of the extension: message names/shapes (Zod) and the list of supported AI sites.",
+  "name": "@safeai/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}
