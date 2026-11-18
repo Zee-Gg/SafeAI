@@ -47,6 +47,11 @@
 2. **Chrome 137+ removed the `--load-extension` flag in normal (branded) Chrome.** Some tools used that flag to auto-load extensions. In M3 I'll check whether WXT's current runner still auto-loads into your Chrome. If not, we use one of two fallbacks, and I'll ask you first:
    - point WXT at **Chrome for Testing** (a dev build of Chrome that still supports auto-loading), or
    - turn off auto-launch and load `apps/extension/.output/chrome-mv3-dev` once using **chrome://extensions → Load unpacked**. Hot reload still works.
+
+   **Result (M3):** auto-loading **works** with WXT 0.21.5 + web-ext 10.8 on your Chrome 157. The dev profile registered the extension from `.output/chrome-mv3-dev`. No fallback needed.
+
+   **Found in M4: turn on Developer mode once.** Chrome 157 doesn't fully run unpacked extensions unless **Developer mode** is on in `chrome://extensions`. Without it, the service worker doesn't start (the popup shows "Background unreachable: Receiving end does not exist") and the extension may be hidden after a reload. Fix: in the dev Chrome window, open `chrome://extensions`, switch on Developer mode, and reload SafeAI. The persistent profile remembers it. The same applies when loading the production build via "Load unpacked".
+
 3. **Google sign-in can be blocked in automated browsers.** If "Continue with Google" says the browser may not be secure, log in to ChatGPT with email + password instead. The login is saved in the persistent profile.
 4. Before running any setup in M1 and M3, I'll re-check the current docs for Tailwind v4 (Vite plugin), ESLint flat config and typescript-eslint (`defineConfig` style). I'll tell you about any differences.
 
@@ -158,22 +163,25 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 
 ### packages/shared
 
-| File              | Purpose / functions                                                                                            |
-| ----------------- | -------------------------------------------------------------------------------------------------------------- |
-| `package.json`    | Names the package `@safeai/shared`. Depends on `zod`.                                                          |
-| `tsconfig.json`   | Extends the base config.                                                                                       |
-| `src/index.ts`    | Re-exports everything from `messages.ts` and `sites.ts`.                                                       |
-| `src/messages.ts` | Message names, Zod schemas and inferred types. See below.                                                      |
-| `src/sites.ts`    | `SUPPORTED_SITES`: `[{ id: "chatgpt", name: "ChatGPT", matches: ["https://chatgpt.com/*"] }]` + `SiteId` type. |
+| File              | Purpose / functions                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `package.json`    | Names the package `@safeai/shared`. Depends on `zod`.                                                                                                                                            |
+| `tsconfig.json`   | Extends the base config.                                                                                                                                                                         |
+| `src/index.ts`    | Re-exports everything from `messages.ts` and `sites.ts`.                                                                                                                                         |
+| `src/messages.ts` | Message names, Zod schemas and inferred types. See below.                                                                                                                                        |
+| `src/sites.ts`    | `SITE_IDS` (`["chatgpt"]`), `SiteId` type, `SUPPORTED_SITES`: `[{ id: "chatgpt", name: "ChatGPT", matches: ["https://chatgpt.com/*"] }]`, and `getSiteName(id)`, which returns the display name. |
 
-**messages.ts contents**
+**messages.ts contents** (as built in M2)
 
 - `PingRequest` `{ type: "PING" }` → `PingReply` `{ memoryCount, storageCount, workerStartedAt }`
 - `GetStatusRequest` `{ type: "GET_STATUS" }` → `GetStatusReply` `{ lastIntercept: InterceptRecord | null, workerStartedAt }`
-- `LogInterceptRequest` `{ type: "LOG_INTERCEPT", payload: InterceptRecord }` → `OkReply` `{ ok: true }`
+- `LogInterceptRequest` `{ type: "LOG_INTERCEPT", payload: InterceptRecord }` → `LogInterceptReply` `{ ok: true }`
+- `ContentPingRequest` `{ type: "CONTENT_PING" }` (popup → content script) → `ContentPingReply` `{ site }`. Approved in M0.
 - `InterceptRecord` = `{ site, at, charCount, mode: "observe" | "replace", replacedCount, method: "insertText" | "paste" | "none", success }`. **Metadata only, never text.**
 - `ErrorReply` `{ ok: false, error: string }`
-- `ExtensionMessage`: one Zod "discriminated union" of every request, told apart by its `type` field.
+- `BackgroundRequestSchema`: one Zod "discriminated union" of every request the background accepts, told apart by its `type` field.
+- `REPLY_SCHEMAS` maps each request type to its reply schema, and `ReplyFor<T>` gives the reply type (e.g. `ReplyFor<'PING'>`).
+- All schemas use `z.strictObject`, so **unknown fields are rejected**. If someone accidentally adds a `text` field to a message, validation fails. This is a safety net for the privacy rule.
 - Types for all of the above, inferred with `z.infer`.
 
 ### apps/extension: config
@@ -190,7 +198,8 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 **`entrypoints/background.ts`** (service worker)
 
 - `defineBackground(() => { … })`: registers `browser.runtime.onMessage` **at the top level, synchronously**. A comment explains why: Chrome may start a sleeping worker only to deliver one message, and listeners added later (after an `await`) would miss it.
-- `onInstalled`: writes default settings `{ testReplaceMode: false }` if none exist.
+- The listener replies using `sendResponse` + `return true` ("I'll answer later"). This is the classic Chrome pattern, and it works in every Chrome version, unlike returning a Promise from the listener.
+- `onInstalled` (reason `install`): writes default settings `{ testReplaceMode: false }`.
 
 **`entrypoints/chatgpt.content/index.tsx`** (content script)
 
@@ -206,8 +215,8 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 - `ctx.onInvalidated` → `stopInterceptor()` (cleans up when the extension reloads).
 
 **`entrypoints/popup/index.html`**: page shell, loads `main.tsx`.
-**`entrypoints/popup/main.tsx`**: imports `ui.css` and mounts `<App />` in `#root`.
-**`entrypoints/popup/App.tsx`**: the popup screen (see section 6). Internal components: `Header`, `StatusCard`, `TestModeToggle`, `LastInterceptCard`, `WorkerLabCard`, `Footer`; helper `timeAgo(ms)`.
+**`entrypoints/popup/main.tsx`**: imports the Geist fonts (`@fontsource-variable/geist`, `geist-mono`) and `ui.css`, then mounts `<App />` in `#root`.
+**`entrypoints/popup/App.tsx`**: the popup screen (see section 6). Internal components: `ShieldIcon` (inline SVG logo), `Header`, `StatusCard`, `TestModeToggle`, `LastInterceptCard`, `WorkerLabCard`, `Footer`, plus building blocks `Card` (white section with a title) and `Stat` (small labelled number). Helpers: `timeAgo(timestamp, now)` and `useNow()` (re-renders every second so "12s ago" keeps counting). Built so far (M4): Header, WorkerLabCard, Footer.
 
 ### apps/extension/src
 
@@ -257,14 +266,15 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
   - `PING` → `bumpCounters()` → `{ memoryCount, storageCount, workerStartedAt }`
   - `GET_STATUS` → `{ lastIntercept, workerStartedAt }`
   - `LOG_INTERCEPT` → saves `lastIntercept` (metadata only) → `{ ok: true }`
-  - invalid → `{ ok: false, error }`. Never throws.
+  - invalid → `{ ok: false, error }`. Never throws. The error lists only field names and problems, never values (values could contain text).
+  - Messages whose `sender.id` isn't our own extension are refused.
+  - Exports the `BackgroundReply` type (all possible replies).
 
 **`background/lifecycle-lab.ts`**
 
 - `workerStartedAt = Date.now()` when the file loads.
 - `memoryCount` (plain variable, wiped when the worker sleeps).
 - `bumpCounters()`: increments `memoryCount` and the stored `storageCount`, returns both.
-- `getWorkerStartedAt()`: returns the start time.
 - Comment explaining the lesson in simple words.
 
 **`ui/StatusBadge.tsx`**
@@ -275,7 +285,8 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 
 **`lib/messaging.ts`**
 
-- `sendToBackground(message)`: sends with `browser.runtime.sendMessage`, validates the reply with the matching Zod schema, returns `{ ok: true, data }` or `{ ok: false, error }` with a clear message.
+- `sendToBackground(message)`: **checks the outgoing message with Zod first** (so a message with an extra `text` field is never sent), sends it with `browser.runtime.sendMessage`, validates the reply with the matching schema, and returns `{ ok: true, data }` or `{ ok: false, error }` with a clear message.
+- `Result<T>` type: "either data or an error".
 
 **`lib/storage.ts`** (WXT `storage.defineItem`)
 
@@ -290,7 +301,7 @@ Every file starts with a 2–4 line plain-English comment. Every exported functi
 
 **`styles/ui.css`**
 
-- `@import "tailwindcss";` + `@import "@safeai/design/src/tokens.css";` + an `@source` line for files outside the app. Used by both the popup and the badge.
+- `@import "tailwindcss";` + `@import "@safeai/design/tokens.css";`. Used by both the popup and the badge. No `@source` line is needed: Tailwind finds our classes automatically in `apps/extension`, and the shared packages contain no classes. Fonts are **not** loaded here. The popup's `main.tsx` imports Geist, and the badge uses system fonts.
 
 ---
 
@@ -339,11 +350,18 @@ Without the `tabs` permission, Chrome hides `tab.url` from the popup. My plan us
 - **Category:** personal #6D28D9 / #F3EEFF · secrets #B42318 / #FEF3F2 · financial #B45309 / #FFF7E6 · business #1D4ED8 / #EFF4FF
 - **Radius:** sm 6px, md 8px, lg 12px, xl 16px
 - **Shadows:** sm, md, lg as specified
-- **Fonts:** sans "Geist" + system fallbacks · mono "Geist Mono" + ui-monospace fallbacks
+- **Fonts:** sans "Geist Variable"/"Geist" + system fallbacks · mono "Geist Mono Variable"/"Geist Mono" + ui-monospace fallbacks · `--font-system` (system fonts only, for the in-page badge)
 - **Font sizes:** xs 12/16, sm 13/20, base 14/20, md 16/24, lg 18/28, xl 20/28, 2xl 24/32
+- **Spacing:** `--spacing: 4px` (so `p-4` = 16px)
 - **Motion:** `--duration-fast: 150ms` (hover), `--duration-base: 200ms` (show/hide), `--ease-out`
 
 Token names follow Tailwind v4 naming so the classes are created automatically, e.g. `--color-primary-600` → `bg-primary-600`, `--radius-lg` → `rounded-lg`, `--shadow-md` → `shadow-md`, `--text-sm` → `text-sm`.
+
+**Built in M2:**
+
+- Status and category colours are named `--color-success` (strong colour, for text/icons) and `--color-success-subtle` (light background). So `text-success bg-success-subtle`.
+- `--color-*: initial` removes Tailwind's built-in palette, so **only our colours exist**. A class like `bg-red-500` simply won't work, which keeps everyone on the design system.
+- All sizes are in **px, not rem**. The badge runs inside chatgpt.com, where `rem` follows ChatGPT's own root font size and could make our badge bigger or smaller.
 
 ---
 
@@ -373,7 +391,7 @@ Token names follow Tailwind v4 naming so the classes are created automatically, 
 
 After each milestone: list of changed files + what to test, then wait for "continue".
 
-**Git:** few, short commits, grouped by phase (not one per milestone). Phase 1 has two: `Phase 1: workspace setup` (M1) and one commit for the rest of Phase 1 when it's done. Code is pushed to `https://github.com/Zee-Gg/SafeAI` (branch `main`).
+**Git:** one short commit per milestone (e.g. `M3: extension scaffold`), pushed to `https://github.com/Zee-Gg/SafeAI` (branch `main`). M1's commit is named `Phase 1: workspace setup`.
 
 ---
 
@@ -395,6 +413,7 @@ Your prompt lists the tools; these are the exact npm packages they need:
 - **Root (dev):** `typescript`, `eslint`, `@eslint/js`, `typescript-eslint`, `globals`, `eslint-plugin-react-hooks`, `eslint-plugin-jsx-a11y`, `eslint-config-prettier`, `prettier`, `prettier-plugin-tailwindcss`
 - **packages/shared:** `zod`
 - **apps/extension:** `wxt`, `@wxt-dev/module-react`, `react`, `react-dom`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`
+- **Added in M3 (approved):** `vite` (WXT 0.21 no longer bundles it; it's a required peer) and `web-ext` (WXT 0.21 only auto-opens the dev browser when it's installed). We got Vite 8, which uses the Rolldown bundler.
 - **Font (asking as requested):** `@fontsource-variable/geist` + `@fontsource-variable/geist-mono`. These are local font files we import in CSS, so no CDN. (Alternative: Vercel's `geist` package, which is built mainly for Next.js.)
 
 `globals` is a small helper that tells ESLint about browser variables like `window`. It's the standard part of a flat config.
