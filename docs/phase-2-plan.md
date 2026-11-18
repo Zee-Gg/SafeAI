@@ -180,17 +180,31 @@ comment. **Every regex has a comment** saying in plain words what it matches.
 might live; `now()` = `performance.now()` if present, else `Date.now()`.
 
 **`types.ts`**: `Confidence`, `Detection` (`id = "category:start:end"`, end exclusive, positions
-always in the ORIGINAL text), `RawDetection` (a Detection without `action`), `Detector`
-(`id`, `categories`, `regexes`, `detect(text, ctx)`), `DetectorContext` (policy, custom-term
-matcher, helpers), `DetectOptions` (`timeBudgetMs`, default 500), `DetectResult`
-(`detections`, `countsByCategory`, `durationMs`, `complete`).
+always in the ORIGINAL text), `RawDetection` (a Detection without `id` **and** `action`),
+`DetectorScope` (`"chunk" | "fullText"`), `Detector` (`id`, `categories`, `regexes`, optional
+`scope`, `detect(text, ctx)`), `DetectorContext` (policy, plus the custom-term matcher from M5),
+`DetectOptions` (`timeBudgetMs`, default 500), `DetectResult` (`detections`,
+`countsByCategory`, `durationMs`, `complete`, `failedDetectors`).
+
+_As built (M2):_ `RawDetection` leaves out `id` as well as `action`. A detector only knows
+positions inside its chunk, so the engine builds the id **after** shifting positions back to the
+original text, which means a wrong, chunk-relative id can never exist. `failedDetectors` is always
+present (an empty list when all is well). It holds detector **ids only**, never text, so it's
+safe in every build.
 
 **`engine.ts`**
 
 - `detect(text, policy, options?)`: the 7 steps in section 3. Empty text gives an empty result
   with `complete: true`. **It never throws.** Each detector runs inside a try/catch, so one
-  failing detector can't break the others. A failure gives `complete: false` and (dev only) the
-  failing detector's id in `failedDetectors`, never the text.
+  failing detector can't break the others. A failure gives `complete: false` and the failing
+  detector's id in `failedDetectors`, never the text. Anything else that fails (e.g. a malformed
+  policy) gives `complete: false` with `failedDetectors: ["engine"]`.
+- `runDetection(text, policy, detectors, options?)`: the same, with a chosen detector list.
+  Used by tests to plug in fake (e.g. crashing) detectors; not exported from `index.ts`.
+- Positions a detector reports outside its text are dropped, and `value` is always re-read from
+  the original text.
+- `DEFAULT_TIME_BUDGET_MS = 500`. The front door (`index.ts`) exports only `detect`,
+  `DEFAULT_TIME_BUDGET_MS` and the types.
 
 **`chunking.ts`**
 
@@ -201,13 +215,22 @@ matcher, helpers), `DetectOptions` (`timeBudgetMs`, default 500), `DetectResult`
   covers it).
 - `dedupeAcrossChunks(detections)`: removes identical findings (same category, start, end)
   that were found twice in an overlap.
+- _As built (M2):_ the cut goes **just after** the whitespace. With no whitespace, the cut never
+  splits an emoji (a 2-unit character) in half. Settings that couldn't make progress
+  (size ≤ overlap + snap window) throw a `RangeError`, which can only be a programming mistake.
+  Constants: `CHUNK_SIZE`, `CHUNK_OVERLAP`, `SNAP_WINDOW`.
 
 **`context.ts`**
 
-- `prepareContext(policy)`: builds the custom-term matcher and the list of enabled detectors.
+- `prepareContext(policy, detectors)`: builds the custom-term matcher (M5) and the list of
+  enabled detectors.
 - Cached by `policy.version` + a quick hash of `customTerms` (and the other policy fields), so
   changing terms rebuilds it, while repeated `detect()` calls reuse it.
 - `clearContextCache()`: for tests.
+- _As built (M2):_ **two cache levels**. (1) The same policy object is found instantly (a
+  `WeakMap`). (2) An equal policy built again is found by its key: version + detector ids + the
+  length and FNV-1a hash of the policy contents. At most **8** policies are kept; the oldest is
+  dropped. `fnv1a(text)` is a fast non-security hash used only for cache keys.
 
 **`overlap.ts`**
 
@@ -219,6 +242,11 @@ matcher, helpers), `DetectOptions` (`timeBudgetMs`, default 500), `DetectResult`
   4. longer match beats shorter;
   5. earlier start wins.
 - Exact duplicates are removed. Findings that don't overlap anything are left alone.
+- _As built (M2):_ `compareStrength(a, b)` applies the 5 rules (plus a final tie-break by id, so
+  the result never depends on input order). `resolveOverlaps` sorts by strength, then keeps each
+  candidate that doesn't touch an already-kept one, found with a **binary search**, so 5,000
+  findings take milliseconds. Touching ranges (one ends exactly where the next starts) don't
+  count as overlapping.
 
 ### packages/detection: utils
 
@@ -281,6 +309,13 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
 - **How:** a standard email regex; trailing punctuation is trimmed (`ali@test.com.` → no dot).
 - **Catches:** `ali@test.com`, `first.last+tag@sub.example.co.uk`
 - **Must NOT catch:** `@username`, `user@localhost`, `logo@2x.png`
+- _As built (M2):_
+  - A lookbehind lets a match start **only where the name part starts**, so 20,000 letters in a
+    row are scanned once, not 20,000 times. A test checks this stays fast.
+  - Length limits come from the email rules: name ≤ 64, domain ≤ 253, ending 2–24 letters.
+  - After the regex, a check rejects empty or edge-hyphen domain labels and names that start or
+    end with a dot or contain `..`, plus image-file endings (png, jpg, jpeg, gif, svg, webp,
+    avif, ico, bmp, tiff), none of which are real domains.
 
 ### phone (`phone.ts`), high (international) / medium (national)
 
@@ -536,19 +571,19 @@ one message), working **from the end of the text backwards** so earlier position
 After each milestone: changed files + test results + **complete manual steps**, then one git
 commit (pushed), then I wait for "continue".
 
-| #       | What gets built                                                                                             | What you check                                                            |
-| ------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **M0**  | This plan                                                                                                   | Read it, answer section 12, approve                                       |
-| **M1**  | categories + policy; detection scaffold; Vitest + coverage; ESLint regexp + purity rules; all utils + tests | `pnpm test`, `pnpm typecheck`, `pnpm lint` pass; open the coverage report |
-| **M2**  | types, engine, chunking, time budget, context cache, overlap, registry, email detector                      | Tests pass; a tiny script prints detections for a sample                  |
-| **M3**  | phone (+ bundle size), credit-card, bank-account, national-id                                               | Tests pass; bundle size numbers reported                                  |
-| **M4**  | api-key patterns (with sources), password, token-url, secret-entropy; public-key tests                      | Tests pass; `git push` not blocked by GitHub push protection              |
-| **M5a** | Evaluate the Aho-Corasick libraries → **stop for your decision**                                            | Choose: library or our own                                                |
-| **M5b** | custom-terms, person-name, address                                                                          | Tests pass                                                                |
-| **M6**  | Corpora + precision/recall; regex-safety; benchmarks (incl. 5,000 terms); coverage; bundle size; tuning     | Read the numbers; **30 ms target met**                                    |
-| **M7**  | Detection Playground (dev-only) + popup link                                                                | Paste samples, see highlights; production build has no Playground         |
-| **M8**  | test-redact, new content-script flow, message schema, popup card; delete test-transform                     | Real ChatGPT tests: redact, block, too long, warn                         |
-| **M9**  | LEARNING Phase 2, DECISIONS, phase-2-notes template, plan synced; final checks                              | Read docs; run the final commands                                         |
+| #       | What gets built                                                                                             | What you check                                                               |
+| ------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **M0**  | This plan                                                                                                   | Read it, answer section 12, approve                                          |
+| **M1**  | categories + policy; detection scaffold; Vitest + coverage; ESLint regexp + purity rules; all utils + tests | `pnpm test`, `pnpm typecheck`, `pnpm lint` pass; open the coverage report    |
+| **M2**  | types, engine, chunking, time budget, context cache, overlap, registry, email detector                      | Tests pass; the verbose test list shows what each detector catches and skips |
+| **M3**  | phone (+ bundle size), credit-card, bank-account, national-id                                               | Tests pass; bundle size numbers reported                                     |
+| **M4**  | api-key patterns (with sources), password, token-url, secret-entropy; public-key tests                      | Tests pass; `git push` not blocked by GitHub push protection                 |
+| **M5a** | Evaluate the Aho-Corasick libraries → **stop for your decision**                                            | Choose: library or our own                                                   |
+| **M5b** | custom-terms, person-name, address                                                                          | Tests pass                                                                   |
+| **M6**  | Corpora + precision/recall; regex-safety; benchmarks (incl. 5,000 terms); coverage; bundle size; tuning     | Read the numbers; **30 ms target met**                                       |
+| **M7**  | Detection Playground (dev-only) + popup link                                                                | Paste samples, see highlights; production build has no Playground            |
+| **M8**  | test-redact, new content-script flow, message schema, popup card; delete test-transform                     | Real ChatGPT tests: redact, block, too long, warn                            |
+| **M9**  | LEARNING Phase 2, DECISIONS, phase-2-notes template, plan synced; final checks                              | Read docs; run the final commands                                            |
 
 ---
 

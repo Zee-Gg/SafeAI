@@ -1,5 +1,6 @@
 /*
-  The public front door of @safeai/detection. Other packages import ONLY from here.
-  M1: the engine doesn't exist yet (detect() arrives in M2); utils are internal and not exported.
+  The public front door of @safeai/detection. Other packages import ONLY from here:
+  detect() and the types. Everything else (utils, detectors, cache) is internal.
 */
-export {};
+export { DEFAULT_TIME_BUDGET_MS, detect } from './engine';
+export type { Confidence, Detection, DetectOptions, DetectResult, RawDetection } from './types';
