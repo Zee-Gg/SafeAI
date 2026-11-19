@@ -31,4 +31,17 @@ export default defineConfig({
     keepProfileChanges: true,
     startUrls: ['https://chatgpt.com'],
   },
+
+  // DEV-ONLY pages: the Detection Playground must never ship. WXT's include/exclude options only
+  // filter by browser, not by dev/production, so we remove it from the list of entrypoints to
+  // build whenever this is a production build. (Check: after `pnpm build`, there must be no
+  // playground.html in apps/extension/.output/chrome-mv3.)
+  hooks: {
+    'entrypoints:resolved': (wxt, entrypoints) => {
+      if (wxt.config.mode !== 'production') return;
+      for (let i = entrypoints.length - 1; i >= 0; i--) {
+        if (entrypoints[i]?.name === 'playground') entrypoints.splice(i, 1);
+      }
+    },
+  },
 });

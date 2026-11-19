@@ -22,6 +22,10 @@ policy** and returns a list of the sensitive items it found: **where** they are,
    `pnpm typecheck` passes.
 2. The benchmark shows **10,000 characters + 500 custom terms in under 30 ms**. We also report
    the time with **5,000 terms**.
+   _Changed after M5 (your choice):_ no benchmark test file. You measure this by hand in the
+   Playground: its summary bar shows the time in ms, and "Generate 5,000 test terms" loads
+   5,000 terms. Type a few more characters after generating, so the shown time is a cached
+   scan and not the one-time preparation.
 3. The **Detection Playground** page (dev-only) lets you paste text and see every detection
    highlighted.
 4. In ChatGPT, with **Test replace mode ON**, the extension uses the **real engine** instead of
@@ -752,6 +756,26 @@ one message), working **from the end of the text backwards** so earlier position
 - Design tokens everywhere; visible focus rings; every control has a label.
 - Settings live only in memory (no storage). The page is **removed from production builds**
   (checked in M7 and in the final checks).
+- _As built (M7):_
+  - **Files:** `entrypoints/playground/index.html`, `main.tsx`, `App.tsx`, plus
+    **`samples.ts`** (5 realistic samples written for the Playground, since the M6 corpus was
+    skipped). All values are fake; keys and IDs are assembled at runtime.
+  - **Removed from production:** a WXT `entrypoints:resolved` hook in `wxt.config.ts` deletes
+    the `playground` entrypoint when `mode === 'production'`. WXT's `include`/`exclude` only
+    filter by browser.
+  - **Popup link:** "Open Detection Playground ↗" in the footer, only when
+    `import.meta.env.DEV` (so the code is removed from production). It opens a tab with
+    `browser.tabs.create`, which needs no permission.
+  - **Custom terms box:** one per line, `term | category` (category optional, default
+    `custom_term`). Lines with an unknown category are counted and shown as "invalid".
+    "Generate 5,000 test terms" fills it with `Test Term 0001 | client_name` …
+  - **Phone country list:** PK, US, GB, AE, SA, IN, CA, AU, DE (phones use `GB`, not `UK`).
+  - **Results:** a summary bar (count, ms, complete/incomplete, any failed detectors, category
+    chips); the text with `<mark>` highlights (group colour, dashed border = low confidence,
+    hover = category · confidence · rule · action); and a table.
+  - The policy object only changes when a setting changes, so the engine's cache keeps each
+    keystroke fast.
+  - The extension now depends on `@safeai/detection` (a workspace link).
 
 ---
 
@@ -773,7 +797,7 @@ milestone's one git commit, push it, and start the next milestone.
 | **M4**  | api-key patterns (with sources), password, token-url, secret-entropy; public-key tests                      | Tests pass; `git push` not blocked by GitHub push protection                 |
 | **M5a** | Evaluate the Aho-Corasick libraries → **stop for your decision**                                            | Choose: library or our own                                                   |
 | **M5b** | custom-terms, person-name, address                                                                          | Tests pass                                                                   |
-| **M6**  | Corpora + precision/recall; regex-safety; benchmarks (incl. 5,000 terms); coverage; bundle size; tuning     | Read the numbers; **30 ms target met**                                       |
+| **M6**  | **SKIPPED after M5 (your choice): no new test files.** Tuning happens in code from what you find in the Playground | —                                                              |
 | **M7**  | Detection Playground (dev-only) + popup link                                                                | Paste samples, see highlights; production build has no Playground            |
 | **M8**  | test-redact, new content-script flow, message schema, popup card; delete test-transform                     | Real ChatGPT tests: redact, block, too long, warn                            |
 | **M9**  | LEARNING Phase 2, DECISIONS, phase-2-notes template, plan synced; final checks                              | Read docs; run the final commands                                            |

@@ -328,8 +328,22 @@ function LastInterceptCard() {
 /** Bottom line with the extension version (read from the manifest). */
 function Footer() {
   return (
-    <footer className="px-4 pb-3 text-xs text-neutral-400">
-      v{browser.runtime.getManifest().version}
+    <footer className="flex items-center justify-between gap-2 px-4 pb-3 text-xs text-neutral-400">
+      <span>v{browser.runtime.getManifest().version}</span>
+      {/* DEV ONLY: in production builds import.meta.env.DEV is false, so this link (and the
+          Playground page itself) don't exist. Opening a tab needs no extra permission. */}
+      {import.meta.env.DEV && (
+        <button
+          type="button"
+          onClick={() => {
+            void browser.tabs.create({ url: browser.runtime.getURL('/playground.html') });
+            window.close();
+          }}
+          className="rounded-sm font-medium text-primary-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+        >
+          Open Detection Playground ↗
+        </button>
+      )}
     </footer>
   );
 }

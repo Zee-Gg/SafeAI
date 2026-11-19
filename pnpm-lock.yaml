@@ -220,6 +220,9 @@ importers:
       '@safeai/design':
         specifier: workspace:*
         version: link:../../packages/design
+      '@safeai/detection':
+        specifier: workspace:*
+        version: link:../../packages/detection
       '@safeai/shared':
         specifier: workspace:*
         version: link:../../packages/shared

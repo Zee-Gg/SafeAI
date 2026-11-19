@@ -107,3 +107,7 @@
 | **Labelled 5-digit postal codes include major PK/UAE cities**                                | Our first markets; a full city list is out of scope                                                                                                                                                                                                 |
 | **Time budget starts after policy preparation**       | Preparation is one-time and cached; counting it wrongly stopped the first scan with 5,000 terms (found in your M5 test run). `durationMs` still includes it |
 | **ASCII fast path in normalization**                  | Most text is plain ASCII, where NFKC changes nothing; same results, much less work                        |
+| **No new test files after M5; M6 skipped**            | Your choice: you test on localhost (Playground, ChatGPT). The 453 existing tests stay; the speed target is checked by hand in the Playground |
+| **Playground removed from production via the `entrypoints:resolved` hook** | WXT's include/exclude filter only by browser; you check the production output for playground.html |
+| **Playground samples live in `samples.ts`**           | The M6 corpus was skipped; 5 realistic, fully fake samples (keys built at runtime)                         |
+| **Popup Playground link only when `import.meta.env.DEV`** | The code is stripped from production; opening a tab needs no permission                                |
