@@ -34,6 +34,11 @@ export function runDetection(
 
   try {
     const context = prepareContext(policy, detectors);
+    // The time budget limits SCANNING the text. Preparing a policy (e.g. building the matcher
+    // for 5,000 custom terms) happens once and is then cached, so it doesn't count against the
+    // budget; otherwise the first message after a policy change could be wrongly refused.
+    // durationMs (below) still reports the total time, preparation included.
+    const scanStartedAt = now();
     const chunks = splitIntoChunks(text);
     const found: Detection[] = [];
     const failedDetectors: string[] = [];
@@ -42,7 +47,7 @@ export function runDetection(
     for (const detector of context.enabledDetectors) {
       const pieces: Chunk[] = detector.scope === 'fullText' ? [{ text, offset: 0 }] : chunks;
       for (const piece of pieces) {
-        if (now() - startedAt >= budget) {
+        if (now() - scanStartedAt >= budget) {
           return finish(found, startedAt, false, failedDetectors);
         }
         try {

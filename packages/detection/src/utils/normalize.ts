@@ -33,9 +33,32 @@ export function normalizeForMatching(text: string): NormalizedText {
   let position = 0; // position in the original text (UTF-16 units)
   let lastWasSpace = false;
 
-  for (let i = 0; i < codePoints.length;) {
-    // Group a base character with any accents that follow it.
-    let cluster = codePoints[i] ?? '';
+  for (let i = 0; i < codePoints.length; ) {
+    // Fast path (most text): a plain ASCII character with no accent right after it. NFKC
+    // leaves ASCII unchanged, so lowercasing A–Z is all we need. Accent marks start at U+0300,
+    // so anything below that can't attach to this character. Same result as the slow path.
+    const first = codePoints[i] ?? '';
+    const code = first.charCodeAt(0);
+    const nextCode = codePoints[i + 1]?.charCodeAt(0) ?? 0;
+    if (code < 0x80 && nextCode < 0x300) {
+      if (code === 32 || (code >= 9 && code <= 13)) {
+        if (!lastWasSpace) {
+          out.push(' ');
+          indexMap.push(position);
+          lastWasSpace = true;
+        }
+      } else {
+        out.push(code >= 65 && code <= 90 ? String.fromCharCode(code + 32) : first);
+        indexMap.push(position);
+        lastWasSpace = false;
+      }
+      position += 1;
+      i += 1;
+      continue;
+    }
+
+    // Full path: group a base character with any accents that follow it, then NFKC + lowercase.
+    let cluster = first;
     let j = i + 1;
     while (j < codePoints.length && COMBINING_MARK.test(codePoints[j] ?? '')) {
       cluster += codePoints[j];

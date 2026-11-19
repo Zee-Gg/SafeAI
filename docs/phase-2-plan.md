@@ -205,6 +205,11 @@ safe in every build.
   the original text.
 - `DEFAULT_TIME_BUDGET_MS = 500`. The front door (`index.ts`) exports only `detect`,
   `DEFAULT_TIME_BUDGET_MS` and the types.
+- **Changed in M5 (found in your test run):** the time budget is counted from **after** the
+  policy is prepared. Preparation (e.g. building the matcher for 5,000 custom terms) happens
+  once and is cached. Counting it made the first call with a big policy stop before scanning
+  anything, which in ChatGPT would have meant a wrongly refused message. `durationMs` still
+  reports the total time, preparation included.
 
 **`chunking.ts`**
 
@@ -258,12 +263,15 @@ safe in every build.
 | `normalize.ts`    | `normalizeTerm(term)`; `normalizeForMatching(text)` → `{ normalized, indexMap, sourceLength }`; `toOriginalRange(map, start, end)` maps a match back (includes the whole original character if NFKC expanded it, e.g. "ﬁ" → "fi") |
 | `boundaries.ts`   | `isWordChar(char)` (Unicode letters/digits/accent marks/underscore); `isWholeWordMatch(text, start, end)` (handles emojis)                                                                                                        |
 | `match.ts`        | `matchAll(regex, text, group?)`: runs a regex with the `d` flag, gives exact start/end of the whole match or of one capture group                                                                                                 |
-| `aho-corasick.ts` | Only if chosen in M5: `buildAutomaton(terms)`, `search(text)`                                                                                                                                                                     |
+| `aho-corasick.ts` | **Chosen in M5 (our own):** `buildAutomaton(patterns)`, `searchAll(automaton, text)`                                                                                                                                              |
 
 `normalizeForMatching` lowercases, applies Unicode NFKC, and collapses every run of whitespace
 (spaces, tabs, line breaks) into one space. It keeps `indexMap[i]` = the position in the
 ORIGINAL text of normalized character `i`. Tests cover extra spaces, line breaks, emojis
 (which take 2 "characters" in JavaScript) and Urdu/Arabic text.
+_Speed-up (M5):_ plain ASCII characters with no accent after them take a fast path (lowercase
+A–Z directly; NFKC leaves ASCII unchanged). Only non-ASCII text goes through the full Unicode
+path. The results are identical.
 
 ### packages/detection: detectors
 
@@ -435,23 +443,23 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
 
 _As built (M4), formats checked against the sources on 2026-11-19:_
 
-| Provider     | ruleId                          | Pattern used                                                        | Source (in the code)                                    |
-| ------------ | ------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
-| OpenAI       | `api_key.openai`                | `sk-proj-` / `sk-svcacct-` / `sk-admin-` + 20–300                   | OpenAI API reference (admin keys); no formal spec       |
-| OpenAI       | `api_key.openai_legacy`         | `sk-` + 20 + `T3BlbkFJ` marker + 20                                 | GitHub secret-scanning list                             |
-| Anthropic    | `api_key.anthropic`             | `sk-ant-` + 20–300                                                  | platform.claude.com (docs examples `sk-ant-api03-…`)    |
-| Stripe       | `api_key.stripe`                | `sk_live_` `sk_test_` `rk_live_` `rk_test_` **`sk_org_`** + 10–250  | docs.stripe.com/keys                                    |
-| GitHub       | `api_key.github`                | `ghp_ gho_ ghu_ ghs_ ghr_` + exactly 36                             | GitHub engineering blog (token formats)                 |
-| GitHub       | `api_key.github_pat`            | `github_pat_` + 22 + `_` + 59                                       | GitHub secret-scanning list                             |
-| AWS          | `api_key.aws_access_key_id`     | `AKIA`/`ASIA` + 16                                                  | AWS IAM identifiers page                                |
-| AWS          | `api_key.aws_secret_access_key` | 40 base64-style chars **only after** aws_secret / secret access key | AWS access-keys page                                    |
-| Google       | `api_key.google`                | `AIza` + 35                                                         | Google Cloud API keys page (its example key)            |
-| Slack        | `api_key.slack`                 | `xoxb- xoxp- xoxo- xoxs- xoxe- xoxe.xapp- xapp- xwfp-`              | docs.slack.dev/authentication/tokens                    |
-| SendGrid     | `api_key.sendgrid`              | `SG.` + 22 + `.` + 43 (= 69 chars, matches Twilio's stated length)  | Twilio SendGrid API keys page                           |
-| Twilio       | `api_key.twilio_api_key`        | `SK` + 32 hex (official `^SK[0-9a-fA-F]{32}$`)                      | Twilio Key resource reference                           |
-| Twilio       | `api_key.twilio_auth_token`     | 32 hex **only after** "twilio" / "auth token"                       | Twilio API keys page                                    |
-| Hugging Face | `api_key.huggingface`           | `hf_` + 30–100                                                      | huggingface.co/docs/hub/security-tokens                 |
-| Supabase     | `api_key.supabase_secret`       | `sb_secret_` + 20–200                                               | supabase.com/docs/guides/api/api-keys                   |
+| Provider     | ruleId                          | Pattern used                                                        | Source (in the code)                                 |
+| ------------ | ------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------- |
+| OpenAI       | `api_key.openai`                | `sk-proj-` / `sk-svcacct-` / `sk-admin-` + 20–300                   | OpenAI API reference (admin keys); no formal spec    |
+| OpenAI       | `api_key.openai_legacy`         | `sk-` + 20 + `T3BlbkFJ` marker + 20                                 | GitHub secret-scanning list                          |
+| Anthropic    | `api_key.anthropic`             | `sk-ant-` + 20–300                                                  | platform.claude.com (docs examples `sk-ant-api03-…`) |
+| Stripe       | `api_key.stripe`                | `sk_live_` `sk_test_` `rk_live_` `rk_test_` **`sk_org_`** + 10–250  | docs.stripe.com/keys                                 |
+| GitHub       | `api_key.github`                | `ghp_ gho_ ghu_ ghs_ ghr_` + exactly 36                             | GitHub engineering blog (token formats)              |
+| GitHub       | `api_key.github_pat`            | `github_pat_` + 22 + `_` + 59                                       | GitHub secret-scanning list                          |
+| AWS          | `api_key.aws_access_key_id`     | `AKIA`/`ASIA` + 16                                                  | AWS IAM identifiers page                             |
+| AWS          | `api_key.aws_secret_access_key` | 40 base64-style chars **only after** aws_secret / secret access key | AWS access-keys page                                 |
+| Google       | `api_key.google`                | `AIza` + 35                                                         | Google Cloud API keys page (its example key)         |
+| Slack        | `api_key.slack`                 | `xoxb- xoxp- xoxo- xoxs- xoxe- xoxe.xapp- xapp- xwfp-`              | docs.slack.dev/authentication/tokens                 |
+| SendGrid     | `api_key.sendgrid`              | `SG.` + 22 + `.` + 43 (= 69 chars, matches Twilio's stated length)  | Twilio SendGrid API keys page                        |
+| Twilio       | `api_key.twilio_api_key`        | `SK` + 32 hex (official `^SK[0-9a-fA-F]{32}$`)                      | Twilio Key resource reference                        |
+| Twilio       | `api_key.twilio_auth_token`     | 32 hex **only after** "twilio" / "auth token"                       | Twilio API keys page                                 |
+| Hugging Face | `api_key.huggingface`           | `hf_` + 30–100                                                      | huggingface.co/docs/hub/security-tokens              |
+| Supabase     | `api_key.supabase_secret`       | `sb_secret_` + 20–200                                               | supabase.com/docs/guides/api/api-keys                |
 
 - **Changes from the brief:**
   - Slack's current docs list `xoxb- xoxp- xapp- xoxe.xapp- xwfp-`, but **not** `xoxa-`/`xoxr-`, so those are left out. `xoxo-`/`xoxs-` are kept because the brief named them (older tokens can still be in use).
@@ -520,7 +528,7 @@ _As built (M4), formats checked against the sources on 2026-11-19:_
     `DB_PASSWORD` and `user.password` do.
   - **Skipped values:** shorter than 3 characters; settings words (true, false, null, none, nil,
     undefined, required, optional, string, yes, no, empty); placeholders starting with
-    `$ { < % *` (`${DB_PASS}`, `{{ … }}`, `<your password>`, `****`); code that *reads* a
+    `$ { < % *` (`${DB_PASS}`, `{{ … }}`, `<your password>`, `****`); code that _reads_ a
     password (`process.env…`, `getenv(…)`, anything with `(`).
 
 ### token-url (`token-url.ts`), high, secret part only
@@ -579,6 +587,22 @@ _As built (M4), formats checked against the sources on 2026-11-19:_
   mapped back with `indexMap`.
 - **Catches** (term `ABC Corp`): `abc corp`, `ABC Corp's`, `ABC⏎Corp` (line break)
 - **Must NOT catch:** `ABC Corporation` (unless that is also a term)
+- _As built (M5):_
+  - **Matcher decision (M5a, your choice): our own Aho-Corasick** in `utils/aho-corasick.ts`.
+    `@remusao/aho-corasick` doesn't exist on npm; `ahocorasick` was last released in Nov 2018
+    (no types, CommonJS only). `modern-ahocorasick` (maintained, typed) was considered, but we'd
+    still have to wrap it for positions, longest match and whole words.
+  - `buildAutomaton(patterns)`: a trie keyed by UTF-16 code, failure links built breadth-first,
+    and "output links" (the nearest node that ends a pattern) so outputs are never copied.
+    `searchAll(automaton, text)` returns `{ start, end, pattern }` for every occurrence,
+    overlapping ones included, in one pass.
+  - `prepareCustomTerms(terms)` normalizes the terms, drops empty ones, keeps the **first** of any
+    duplicates, builds the automaton, and returns `null` when there's nothing to search. The
+    context (`context.ts`) calls it **once per policy**, so 5,000 terms are built once and cached.
+  - The detector maps each match back with `toOriginalRange`, does the whole-word check on the
+    **original** text, keeps the longest term per start position, and leaves other overlaps to
+    the engine. `ruleId`: `custom_term.<category>`.
+  - `DetectorContext` gained an optional `customTerms` (the prepared matcher).
 
 ### person-name (`person-name.ts`), context only, name only
 
@@ -592,6 +616,21 @@ _As built (M4), formats checked against the sources on 2026-11-19:_
 - Ignores team, all, everyone, there, guys, sir, madam, folks, friends after greetings.
 - **Catches:** `Dr. Ayesha Khan` → `Ayesha Khan`; `Hi Sarah,` → `Sarah`
 - **Must NOT catch:** `Hi team,`, `Hello there`, capitalised words without context
+- _As built (M5):_
+  - **Regexes find only the trigger** (title, label, greeting, sign-off); a small reader
+    (`readNameWords`) then collects the capitalised words. A regex like "1–3 capitalised words"
+    would need a repeated group of repeated characters, the nested-quantifier shape that
+    slow-regex checkers reject.
+  - Name words may contain letters, accents, `'`, `’` and `-` (`O'Neil`, `Al-Khan`). A possessive
+    `'s` ends the name (`Smith's report` → `Smith`). Names never continue across a line break.
+  - **Greetings** must be followed by `,`, `!` or the end of the line (`Hi Sarah and the team` →
+    skipped). When the first word is a title (`Dear Mr Khan,`), the title rule reports the name.
+  - **Labels:** `name`/`full name` must not be glued to letters (`username:` doesn't count), and
+    are skipped after company, business, file, user, project, host, domain, display, product,
+    brand, app, account, bank, street, city, field, variable (e.g. `Company name:`).
+  - **Sign-offs** also accept Best/Kind/Warm regards and Thank you. "The" was added to the
+    not-a-name list (`Thanks,⏎The Team`).
+  - `ruleId`s: `person_name.title`, `.label`, `.greeting`, `.sign_off`.
 
 ### address (`address.ts`), low by design
 
@@ -600,6 +639,17 @@ _As built (M4), formats checked against the sources on 2026-11-19:_
   (`NY 10001`); 5-digit codes only next to a city / "postal code" word.
 - **Catches:** `221B Baker Street`, `House #12, Street 5`, `SW1A 1AA`, `NY 10001`
 - **Must NOT catch:** `Road map`, `Phase 2 of the project`, `Block quote`
+- _As built (M5):_
+  - **Street:** a flat regex finds the street word (capitalised; only St/Rd/Ave/Ln/Blvd may take
+    a dot). Code then walks **back** over 1–4 capitalised words to a house number (`221B`, `12`)
+    on the same line. "Drive" is included, but "Dr" is not (it's a title for names).
+  - Street words followed by map, maps, quote, quotes, diagram, chain or test are skipped (`Road
+map`, `Block quote`). `Phase 2 of …` is skipped because the number comes **after** the word.
+  - **Labelled 5-digit codes:** after postal code / post code / postcode / zip (code), or after
+    a major Pakistani or UAE city (Lahore, Karachi, Islamabad, Rawalpindi, Faisalabad, Multan,
+    Peshawar, Quetta, Sialkot, Hyderabad, Dubai, Sharjah). **Only the code** is caught.
+  - UK postcodes and US state codes are matched in capitals only.
+  - `ruleId`s: `address.street`, `.house_street`, `.uk_postcode`, `.us_zip`, `.postal_code`.
 
 ---
 

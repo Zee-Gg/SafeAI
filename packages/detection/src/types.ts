@@ -3,7 +3,9 @@
   provide, and what detect() returns. Positions are always UTF-16 indexes with an EXCLUSIVE end,
   like String.prototype.slice(start, end).
 */
-import type { DetectorCategory, Policy, RuleAction } from '@safeai/shared';
+import type { CustomTermCategory, DetectorCategory, Policy, RuleAction } from '@safeai/shared';
+
+import type { Automaton } from './utils/aho-corasick';
 
 /** How sure we are: high = almost certainly sensitive, medium = probably, low = maybe. */
 export type Confidence = 'high' | 'medium' | 'low';
@@ -35,9 +37,25 @@ export type RawDetection = Omit<Detection, 'id' | 'action'>;
 /** "chunk" = runs on each 20,000-character piece; "fullText" = runs once on the whole text. */
 export type DetectorScope = 'chunk' | 'fullText';
 
+/** One custom term after normalization (lowercase, NFKC, single spaces). */
+export interface PreparedTerm {
+  normalized: string;
+  category: CustomTermCategory;
+  wholeWord: boolean;
+}
+
+/** The custom terms of a policy, ready to search (built once per policy, then cached). */
+export interface CustomTermMatcher {
+  automaton: Automaton;
+  /** terms[i] belongs to pattern number i in the automaton. */
+  terms: readonly PreparedTerm[];
+}
+
 /** Everything a detector may need besides the text, prepared once per policy. */
 export interface DetectorContext {
   policy: Policy;
+  /** The policy's custom terms, ready to search (null/missing when there are none). */
+  customTerms?: CustomTermMatcher | null;
 }
 
 /** One kind of detector, e.g. "email". */

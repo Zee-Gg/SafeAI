@@ -1,11 +1,12 @@
 /*
-  Prepares everything that depends only on the policy (which detectors are on, and later the
+  Prepares everything that depends only on the policy (which detectors are on, and the
   custom-term search machine), and caches it, so each detect() call doesn't redo that work.
   Two cache levels: the same policy object is found instantly; an equal policy built again is
   found by a key (version + a quick hash of the policy contents), so changing terms rebuilds it.
 */
 import type { Policy } from '@safeai/shared';
 
+import { prepareCustomTerms } from './detectors/custom-terms';
 import type { Detector, DetectorContext } from './types';
 
 /** The prepared, reusable data for one policy + detector list. */
@@ -47,7 +48,9 @@ function build(policy: Policy, detectors: readonly Detector[]): PreparedContext 
   const enabledDetectors = detectors.filter((detector) =>
     detector.categories.some((category) => policy.rules[category].action !== 'allow'),
   );
-  return { policy, enabledDetectors };
+  // Building the custom-term machine is the expensive part (e.g. 5,000 terms), so it happens
+  // here, once per policy, and is reused by every detect() call.
+  return { policy, enabledDetectors, customTerms: prepareCustomTerms(policy.customTerms) };
 }
 
 /** version + detector ids + a hash of everything else in the policy. */
