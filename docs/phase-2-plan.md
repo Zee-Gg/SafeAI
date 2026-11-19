@@ -5,8 +5,9 @@
 
 # SafeAI — Phase 2 Plan
 
-> Status: **Approved** (2026-11-18, with the changes recorded in section 12). Work in progress.
-> Last updated: 2026-11-18
+> Status: **Built** (M0–M5, M7–M9; **M6 skipped** at your request). This file matches the code
+> as built: "As built" and "Changed in …" notes record every change made during the work.
+> Approved: 2026-11-18 · Last updated: 2026-11-19
 
 ---
 
@@ -26,6 +27,13 @@ policy** and returns a list of the sensitive items it found: **where** they are,
    Playground: its summary bar shows the time in ms, and "Generate 5,000 test terms" loads
    5,000 terms. Type a few more characters after generating, so the shown time is a cached
    scan and not the one-time preparation.
+   **First measurement (you, M9, dev build):** 10,625 characters → **32 ms** with 0 terms,
+   **31.4 ms** with 5,000 terms (max 36 ms). So the custom terms cost almost nothing, but the
+   built-in detectors were about 2 ms over the goal. **Response:** per-detector timings (shown
+   in the Playground) and a phone pre-filter (see the phone section). Re-measured after that
+   change: **11.7 ms with 0 terms** ✅. 5,000 terms were still slow (34–41 ms), which led to the
+   leaner term-matcher (see the phone section). Final numbers for 0 / 500 / 5,000 terms go in
+   `docs/phase-2-notes.md`, question 4.
 3. The **Detection Playground** page (dev-only) lets you paste text and see every detection
    highlighted.
 4. In ChatGPT, with **Test replace mode ON**, the extension uses the **real engine** instead of
@@ -205,6 +213,9 @@ safe in every build.
   policy) gives `complete: false` with `failedDetectors: ["engine"]`.
 - `runDetection(text, policy, detectors, options?)`: the same, with a chosen detector list.
   Used by tests to plug in fake (e.g. crashing) detectors; not exported from `index.ts`.
+- _Added in M9:_ `DetectResult.timingsMs` gives the milliseconds spent in each detector, by
+  detector id (ids and numbers only, never text). The Playground shows the 5 slowest, so slow
+  detectors can be found by measurement instead of guesswork.
 - Positions a detector reports outside its text are dropped, and `value` is always re-read from
   the original text.
 - `DEFAULT_TIME_BUDGET_MS = 500`. The front door (`index.ts`) exports only `detect`,
@@ -366,6 +377,21 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
     `content-scripts/chatgpt.js` went from **330 kB** (Phase 1) to **580 kB** (with the engine):
     **+250 kB**, smaller than the engine's standalone 399 kB because the content script already
     contained React and Zod. For comparison, `popup.js` is 334 kB and `background.js` 105 kB.
+  - **Speed pre-filter (M9, after your 32 ms measurement):** the phone library used to read the
+    whole text. Now `phoneWindows(text)` first finds digit runs that could be phone numbers (a
+    flat regex: optional `+` or `(`, a digit, 5–40 digits or `space . - / ( )`, ending in a
+    digit, with 7+ digits in total). Each run gets 20 characters of context on each side (for
+    things like `ext. 22`), widened to the nearest whitespace by up to 20 more so nothing is cut
+    in half. Overlapping windows are merged, and the library only checks those windows.
+    Positions are shifted back, and the filters still look at the full text.
+  - **Second measurement (you, M9):** no terms **11.7 ms** (phone 8.1 ms) ✅. With 5,000 terms,
+    34–41 ms, with phone suddenly at **24–29 ms**, although phone never reads the terms. The cause
+    is memory: the term-matcher stored ~90,000 tree nodes as separate objects, so garbage
+    collection pauses landed in the phone detector.
+    **Response:** (1) the Aho-Corasick tree now lives in **one lookup table + compact number
+    arrays** (see `utils/aho-corasick.ts`); (2) phone windows less than **100 characters** apart
+    are merged, so the library starts fewer times. Third measurement: recorded by you in
+    `docs/phase-2-notes.md`, question 4.
 
 ### credit-card (`credit-card.ts`), high
 
@@ -827,7 +853,7 @@ milestone's one git commit, push it, and start the next milestone.
 | **M6**  | **SKIPPED after M5 (your choice): no new test files.** Tuning happens in code from what you find in the Playground | —                                                              |
 | **M7**  | Detection Playground (dev-only) + popup link                                                                | Paste samples, see highlights; production build has no Playground            |
 | **M8**  | test-redact, new content-script flow, message schema, popup card; delete test-transform                     | Real ChatGPT tests: redact, block, too long, warn                            |
-| **M9**  | LEARNING Phase 2, DECISIONS, phase-2-notes template, plan synced; final checks                              | Read docs; run the final commands                                            |
+| **M9**  | LEARNING Phase 2, DECISIONS, phase-2-notes template, README, plan synced; final checks (you run them)        | Read docs; run the final commands                                            |
 
 ---
 

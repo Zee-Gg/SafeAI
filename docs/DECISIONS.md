@@ -118,3 +118,9 @@
 | **`countsByCategory` keys restricted to known categories (`z.partialRecord`)** | Metadata only; no free-form keys that could carry text                         |
 | **GET_STATUS drops records that don't match today's schema** | Old Phase 1 records would otherwise produce an invalid reply                                       |
 | **`test-transform.ts` deleted**                       | Replaced by the real engine + `test-redact.ts`                                                           |
+| **M9 final checks are run by you**                    | Your Phase 2 working rule: Claude writes code and docs; you run every check                                |
+| **README updated for Phase 2**                        | New packages/scripts (`pnpm test`, Playground) are discoverable from the front page                       |
+| **Per-detector timings in DetectResult (`timingsMs`)** | Your 32 ms measurement showed we need to know WHERE the time goes; ids and numbers only, never text      |
+| **Phone pre-filter: the library only checks windows around 7+ digit runs** | The library was reading the whole text; most text has few or no phone-like spots                |
+| **Aho-Corasick stored in one Map + typed arrays (not one object per node)** | 5,000 terms made ~90,000 objects; garbage collection then slowed the phone detector to 24–29 ms (your M9 timings) |
+| **Phone windows < 100 characters apart are merged**   | Each library call has a start-up cost; fewer, slightly longer calls are faster on number-heavy text       |

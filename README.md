@@ -7,14 +7,21 @@
 
 A Chrome extension (Manifest V3) that protects sensitive data in prompts sent to AI chat tools.
 
-**Phase 1 (current):** ChatGPT only. It proves the riskiest idea works: SafeAI can stop a
-ChatGPT message before it is sent, change its text, and send the changed version. With
-"Test replace mode" on, `email me at ali@test.com` reaches ChatGPT as `email me at [EMAIL_1]`.
+**Phase 1:** ChatGPT only. It proved the riskiest idea works: SafeAI can stop a ChatGPT message
+before it is sent, change its text, and send the changed version.
 
-- Plan (matches the code): [docs/phase-1-plan.md](docs/phase-1-plan.md)
+**Phase 2 (current):** a real **detection engine** (`packages/detection`) finds emails, phones,
+cards, bank accounts, national IDs, API keys, passwords, tokens in URLs, random-looking secrets,
+custom terms, names and addresses. With "Test replace mode" on, ChatGPT receives placeholders
+such as `[EMAIL_1]` and `[API_KEY_1]` instead. A dev-only **Detection Playground** lets you paste
+text and see every detection highlighted.
+
+- Plans (match the code): [docs/phase-1-plan.md](docs/phase-1-plan.md),
+  [docs/phase-2-plan.md](docs/phase-2-plan.md)
 - Why we chose each tool: [docs/DECISIONS.md](docs/DECISIONS.md)
 - Plain-English lessons: [docs/LEARNING.md](docs/LEARNING.md)
-- Testing notes to fill in: [docs/phase-1-notes.md](docs/phase-1-notes.md)
+- Testing notes to fill in: [docs/phase-1-notes.md](docs/phase-1-notes.md),
+  [docs/phase-2-notes.md](docs/phase-2-notes.md)
 
 ---
 
@@ -110,6 +117,11 @@ Production builds contain no debug logging. Their only permission is `storage`.
 | `pnpm lint:fix`     | Same, and fixes what it can automatically.                     |
 | `pnpm format`       | Formats every file with Prettier (and sorts Tailwind classes). |
 | `pnpm format:check` | Checks formatting without changing anything.                   |
+| `pnpm test`         | Runs the detection engine's tests once, with coverage (≥ 90%). |
+| `pnpm test:watch`   | Re-runs the engine's tests on every save (no coverage).        |
+
+**Detection Playground (dev only):** run `pnpm dev`, open the SafeAI popup, and click
+**"Open Detection Playground ↗"** in its footer. It isn't included in production builds.
 
 ---
 
@@ -117,10 +129,11 @@ Production builds contain no debug logging. Their only permission is `storage`.
 
 ```
 apps/extension/        The Chrome extension (WXT + React + Tailwind v4)
-  entrypoints/         background.ts, chatgpt.content/, popup/
+  entrypoints/         background.ts, chatgpt.content/, popup/, playground/ (dev only)
   src/                 adapters/, content/, background/, ui/, lib/, styles/
+packages/detection/    The detection engine: detect(text, policy) — pure, no DOM/network/logging
 packages/design/       Design tokens (one CSS file)
-packages/shared/       Message schemas (Zod) and the list of supported sites
+packages/shared/       Message schemas, categories and policy (Zod), supported sites
 docs/                  Plan, decisions, learning notes, testing notes
 ```
 

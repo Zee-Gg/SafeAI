@@ -6,6 +6,9 @@
   How it works: all words go into a tree of characters (a "trie"); each node also gets a
   "failure link" saying where to continue when the next character doesn't fit, so the scan
   never steps backwards in the text.
+  MEMORY: the tree is stored in ONE lookup table plus compact number arrays (not one object
+  per node). 5,000 terms make ~90,000 nodes; one object each kept the garbage collector busy
+  and slowed down the OTHER detectors (found by your Playground timings in M9).
 */
 
 /** One hit: pattern number `pattern` found at text[start, end). */
@@ -17,24 +20,33 @@ export interface AhoCorasickMatch {
 
 /** The prepared search machine. Build once, search many times. */
 export interface Automaton {
-  /** Child nodes per node, keyed by UTF-16 character code. */
-  readonly next: Map<number, number>[];
+  /** Child lookup: key = node * 65536 + UTF-16 character code → child node. */
+  readonly transitions: Map<number, number>;
   /** Failure link per node: the longest suffix of this node's path that is also in the trie. */
-  readonly fail: number[];
-  /** Patterns that end exactly at this node. */
-  readonly ends: number[][];
+  readonly fail: Int32Array;
   /** Nearest node (via failure links) that ends a pattern, or -1. Avoids copying output lists. */
-  readonly outputLink: number[];
+  readonly outputLink: Int32Array;
+  /** Patterns that end exactly at a node (only nodes that end at least one pattern). */
+  readonly ends: Map<number, number[]>;
   /** Length of each pattern (to compute where a match starts). */
-  readonly lengths: number[];
+  readonly lengths: readonly number[];
 }
 
 const ROOT = 0;
+/** UTF-16 character codes are below 65,536, so node * 65536 + code is a unique key. */
+const CODE_RANGE = 0x10000;
 
 /** Builds the search machine for the given patterns. Empty patterns are ignored. */
 export function buildAutomaton(patterns: readonly string[]): Automaton {
-  const next: Map<number, number>[] = [new Map()];
-  const ends: number[][] = [[]];
+  // The trie can't have more nodes than the total number of pattern characters (+ the root).
+  const maxNodes = patterns.reduce((sum, p) => sum + p.length, 0) + 1;
+  const transitions = new Map<number, number>();
+  const ends = new Map<number, number[]>();
+  // Each node's children as a linked list (first child, next sibling), used only while building.
+  const firstChild = new Int32Array(maxNodes).fill(-1);
+  const nextSibling = new Int32Array(maxNodes).fill(-1);
+  const edgeCode = new Int32Array(maxNodes); // the character leading INTO each node
+  let nodeCount = 1;
 
   // 1. Put every pattern into the trie.
   patterns.forEach((pattern, index) => {
@@ -42,59 +54,72 @@ export function buildAutomaton(patterns: readonly string[]): Automaton {
     let node = ROOT;
     for (let i = 0; i < pattern.length; i++) {
       const code = pattern.charCodeAt(i);
-      let child = next[node]?.get(code);
+      const key = node * CODE_RANGE + code;
+      let child = transitions.get(key);
       if (child === undefined) {
-        child = next.length;
-        next.push(new Map());
-        ends.push([]);
-        next[node]?.set(code, child);
+        child = nodeCount++;
+        transitions.set(key, child);
+        edgeCode[child] = code;
+        nextSibling[child] = firstChild[node] ?? -1;
+        firstChild[node] = child;
       }
       node = child;
     }
-    ends[node]?.push(index);
+    const list = ends.get(node);
+    if (list) list.push(index);
+    else ends.set(node, [index]);
   });
 
   // 2. Breadth-first: each node's failure link and output link.
-  const fail = new Array<number>(next.length).fill(ROOT);
-  const outputLink = new Array<number>(next.length).fill(-1);
-  const queue: number[] = [];
-  for (const child of next[ROOT]?.values() ?? []) queue.push(child);
+  const fail = new Int32Array(nodeCount); // all 0 = ROOT
+  const outputLink = new Int32Array(nodeCount).fill(-1);
+  const queue = new Int32Array(nodeCount);
+  let tail = 0;
+  for (let c = firstChild[ROOT] ?? -1; c !== -1; c = nextSibling[c] ?? -1) queue[tail++] = c;
 
-  for (let head = 0; head < queue.length; head++) {
+  for (let head = 0; head < tail; head++) {
     const node = queue[head] ?? ROOT;
-    for (const [code, child] of next[node] ?? []) {
+    for (let child = firstChild[node] ?? -1; child !== -1; child = nextSibling[child] ?? -1) {
+      const code = edgeCode[child] ?? 0;
       // Follow failure links until a node that can continue with this character.
       let f = fail[node] ?? ROOT;
-      while (f !== ROOT && !next[f]?.has(code)) f = fail[f] ?? ROOT;
-      const target = next[f]?.get(code);
+      let target = transitions.get(f * CODE_RANGE + code);
+      while (target === undefined && f !== ROOT) {
+        f = fail[f] ?? ROOT;
+        target = transitions.get(f * CODE_RANGE + code);
+      }
       const childFail = target !== undefined && target !== child ? target : ROOT;
       fail[child] = childFail;
-      outputLink[child] =
-        (ends[childFail]?.length ?? 0) > 0 ? childFail : (outputLink[childFail] ?? -1);
-      queue.push(child);
+      outputLink[child] = ends.has(childFail) ? childFail : (outputLink[childFail] ?? -1);
+      queue[tail++] = child;
     }
   }
 
-  return { next, fail, ends, outputLink, lengths: patterns.map((p) => p.length) };
+  return { transitions, fail, outputLink, ends, lengths: patterns.map((p) => p.length) };
 }
 
 /** Finds every occurrence of every pattern in `text` (overlapping ones included), in one pass. */
 export function searchAll(automaton: Automaton, text: string): AhoCorasickMatch[] {
-  const { next, fail, ends, outputLink, lengths } = automaton;
+  const { transitions, fail, ends, outputLink, lengths } = automaton;
   const matches: AhoCorasickMatch[] = [];
   let node = ROOT;
 
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    while (node !== ROOT && !next[node]?.has(code)) node = fail[node] ?? ROOT;
-    node = next[node]?.get(code) ?? ROOT;
+    let next = transitions.get(node * CODE_RANGE + code);
+    while (next === undefined && node !== ROOT) {
+      node = fail[node] ?? ROOT;
+      next = transitions.get(node * CODE_RANGE + code);
+    }
+    node = next ?? ROOT;
 
     // Report every pattern ending here: this node's own, then along the output links.
     // (The root never ends a pattern and its output link is -1, so the loop always stops.)
-    for (let out = node; out !== -1; out = outputLink[out] ?? -1) {
-      for (const pattern of ends[out] ?? []) {
+    for (let out = ends.has(node) ? node : (outputLink[node] ?? -1); out !== -1; ) {
+      for (const pattern of ends.get(out) ?? []) {
         matches.push({ start: i + 1 - (lengths[pattern] ?? 0), end: i + 1, pattern });
       }
+      out = outputLink[out] ?? -1;
     }
   }
   return matches;

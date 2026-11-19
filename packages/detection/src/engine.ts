@@ -30,7 +30,10 @@ export function runDetection(
   const startedAt = now();
   const budget = options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS;
 
-  if (text.length === 0) return finish([], startedAt, true, []);
+  if (text.length === 0) return finish([], startedAt, true, [], {});
+
+  // How long each detector took (milliseconds), to find slow ones. Ids and numbers only.
+  const timingsMs: Record<string, number> = {};
 
   try {
     const context = prepareContext(policy, detectors);
@@ -48,8 +51,9 @@ export function runDetection(
       const pieces: Chunk[] = detector.scope === 'fullText' ? [{ text, offset: 0 }] : chunks;
       for (const piece of pieces) {
         if (now() - scanStartedAt >= budget) {
-          return finish(found, startedAt, false, failedDetectors);
+          return finish(found, startedAt, false, failedDetectors, timingsMs);
         }
+        const detectorStartedAt = now();
         try {
           for (const raw of detector.detect(piece.text, context)) {
             const start = raw.start + piece.offset;
@@ -70,13 +74,15 @@ export function runDetection(
           failedDetectors.push(detector.id);
           complete = false;
           break; // skip this detector's remaining chunks
+        } finally {
+          timingsMs[detector.id] = (timingsMs[detector.id] ?? 0) + (now() - detectorStartedAt);
         }
       }
     }
-    return finish(found, startedAt, complete, failedDetectors);
+    return finish(found, startedAt, complete, failedDetectors, timingsMs);
   } catch {
     // Something outside a detector failed (e.g. a malformed policy): report "not complete".
-    return finish([], startedAt, false, ['engine']);
+    return finish([], startedAt, false, ['engine'], timingsMs);
   }
 }
 
@@ -86,6 +92,7 @@ function finish(
   startedAt: number,
   complete: boolean,
   failedDetectors: string[],
+  timingsMs: Record<string, number>,
 ): DetectResult {
   const detections = resolveOverlaps(dedupeAcrossChunks(found)); // already sorted by start
   const countsByCategory: Partial<Record<DetectorCategory, number>> = {};
@@ -98,5 +105,6 @@ function finish(
     durationMs: now() - startedAt,
     complete,
     failedDetectors,
+    timingsMs,
   };
 }

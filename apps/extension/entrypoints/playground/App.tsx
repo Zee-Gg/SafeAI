@@ -72,8 +72,8 @@ function parseCustomTerms(text: string): { terms: CustomTerm[]; invalid: number 
   return { terms, invalid };
 }
 
-/** 5,000 made-up terms ("Test Term 0001 | client_name" …) for performance checks. */
-function generateTestTerms(count = 5_000): string {
+/** Made-up terms ("Test Term 0001 | client_name" …) for performance checks (500 or 5,000). */
+function generateTestTerms(count: number): string {
   return Array.from(
     { length: count },
     (_, i) =>
@@ -252,13 +252,22 @@ function SettingsPanel({
           <label htmlFor="playground-terms" className="text-sm font-medium text-neutral-700">
             Custom terms <span className="font-normal text-neutral-500">(term | category)</span>
           </label>
-          <button
-            type="button"
-            className={BUTTON_SECONDARY}
-            onClick={() => set({ customTermsText: generateTestTerms() })}
-          >
-            Generate 5,000 test terms
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={BUTTON_SECONDARY}
+              onClick={() => set({ customTermsText: generateTestTerms(500) })}
+            >
+              Generate 500
+            </button>
+            <button
+              type="button"
+              className={BUTTON_SECONDARY}
+              onClick={() => set({ customTermsText: generateTestTerms(5_000) })}
+            >
+              Generate 5,000 test terms
+            </button>
+          </div>
         </div>
         <textarea
           id="playground-terms"
@@ -318,6 +327,20 @@ function SettingsPanel({
 
 /* ---------- Results ---------- */
 
+/** The 5 detectors that took longest, e.g. "phone 4.2 ms · person_name 1.1 ms", to find slow spots. */
+function SlowestDetectors({ timingsMs }: { timingsMs: Record<string, number> }) {
+  const slowest = Object.entries(timingsMs)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  if (slowest.length === 0) return null;
+  return (
+    <p className="font-mono text-xs text-neutral-500">
+      <span className="font-sans">Slowest detectors: </span>
+      {slowest.map(([id, ms]) => `${id} ${ms.toFixed(1)} ms`).join(' · ')}
+    </p>
+  );
+}
+
 function SummaryBar({ result }: { result: DetectResult }) {
   return (
     <div className="mb-4 flex flex-col gap-3">
@@ -338,6 +361,7 @@ function SummaryBar({ result }: { result: DetectResult }) {
           <span className="text-xs text-danger">failed: {result.failedDetectors.join(', ')}</span>
         )}
       </div>
+      <SlowestDetectors timingsMs={result.timingsMs} />
       {result.detections.length > 0 && (
         <ul className="flex flex-wrap gap-1.5" aria-label="Counts per category">
           {Object.entries(result.countsByCategory).map(([category, count]) => {

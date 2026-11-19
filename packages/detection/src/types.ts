@@ -89,4 +89,6 @@ export interface DetectResult {
   complete: boolean;
   /** Ids of detectors that threw (never any text). Empty when everything worked. */
   failedDetectors: string[];
+  /** Milliseconds spent in each detector, by detector id (to find slow ones). Numbers only. */
+  timingsMs: Record<string, number>;
 }
