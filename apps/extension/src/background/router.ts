@@ -5,6 +5,7 @@
 */
 import {
   BackgroundRequestSchema,
+  InterceptRecordSchema,
   type ErrorReply,
   type GetStatusReply,
   type LogInterceptReply,
@@ -47,7 +48,10 @@ export async function handleMessage(
         return { ...counters, workerStartedAt };
       }
       case 'GET_STATUS': {
-        return { lastIntercept: await lastInterceptItem.getValue(), workerStartedAt };
+        // A record saved by an older version (e.g. Phase 1, without category counts) doesn't
+        // match today's shape: report "nothing yet" instead of sending an invalid reply.
+        const stored = InterceptRecordSchema.safeParse(await lastInterceptItem.getValue());
+        return { lastIntercept: stored.success ? stored.data : null, workerStartedAt };
       }
       case 'LOG_INTERCEPT': {
         await lastInterceptItem.setValue(request.payload);

@@ -2,12 +2,17 @@
   The content script for chatgpt.com. It runs inside the ChatGPT page (in an "isolated world":
   it shares the page's HTML but not its JavaScript variables) and starts everything there:
   the status badge, the send interceptor and the send flow (observe or test-replace).
-  CORE SAFETY RULE: in replace mode, if we can't protect a message, we DON'T send it.
+  Phase 2: Test replace mode uses the REAL detection engine with DEFAULT_POLICY.
+  CORE SAFETY RULES: if detection didn't complete, if anything must be blocked, or if we can't
+  write the protected text, the message is NOT sent.
 */
 import '../../src/styles/ui.css';
 
+import { detect } from '@safeai/detection';
 import {
+  CATEGORY_LABEL,
   ContentPingRequestSchema,
+  DEFAULT_POLICY,
   type ContentPingReply,
   type InterceptRecord,
 } from '@safeai/shared';
@@ -25,7 +30,7 @@ import {
   type InterceptMode,
   type Trigger,
 } from '../../src/content/interceptor';
-import { transformForTest } from '../../src/content/test-transform';
+import { summarizeProtection, testRedact } from '../../src/content/test-redact';
 import { devLog, devLogText } from '../../src/lib/logger';
 import { sendToBackground } from '../../src/lib/messaging';
 import { settingsItem } from '../../src/lib/storage';
@@ -114,7 +119,7 @@ export default defineContentScript({
 function createSendFlow(adapter: SiteAdapter, badge: BadgeStore) {
   let busy = false; // true while a replace is in progress
 
-  /** Observe mode: ChatGPT sends normally; we only record metadata. */
+  /** Observe mode: ChatGPT sends normally; we only record metadata (counts, never values). */
   function observe(trigger: Trigger): void {
     const composer = adapter.getComposer();
     if (!composer) return devLog('Send attempt, but the input box was not found');
@@ -122,16 +127,23 @@ function createSendFlow(adapter: SiteAdapter, badge: BadgeStore) {
     if (text.trim() === '') return; // Enter on an empty box doesn't send anything
 
     devLogText(`Observed send (${trigger})`, text);
-    logIntercept({
-      mode: 'observe',
-      charCount: text.length,
-      replacedCount: 0,
-      method: 'none',
-      success: true,
-    });
+    // Run the engine AFTER this event has finished, so ChatGPT's send is never delayed.
+    window.setTimeout(() => {
+      const result = detect(text, DEFAULT_POLICY);
+      logIntercept({
+        mode: 'observe',
+        charCount: text.length,
+        replacedCount: 0,
+        method: 'none',
+        success: true,
+        countsByCategory: result.countsByCategory,
+        durationMs: result.durationMs,
+        complete: result.complete,
+      });
+    }, 0);
   }
 
-  /** Replace mode: the original send was BLOCKED. Protect the text, then send it ourselves. */
+  /** Replace mode: the original send was BLOCKED. Check it, protect it, then send it ourselves. */
   async function replaceAndSend(trigger: Trigger): Promise<void> {
     if (busy) return devLog('Already protecting a message — this attempt was blocked and ignored');
     busy = true;
@@ -145,57 +157,82 @@ function createSendFlow(adapter: SiteAdapter, badge: BadgeStore) {
           replacedCount: 0,
           method: 'none',
           success: false,
+          countsByCategory: {},
+          durationMs: 0,
+          complete: false,
         });
         return;
       }
 
       const original = adapter.readText(composer);
       if (original.trim() === '') return;
-      const { text: protectedText, count } = transformForTest(original);
       devLogText(`Original (${trigger})`, original);
 
-      // Nothing to protect: just let it go.
-      if (count === 0) {
-        const sent = await resend(composer);
-        if (!sent) badge.showError("Couldn't send — please press Send again");
-        logIntercept({
-          mode: 'replace',
-          charCount: original.length,
-          replacedCount: 0,
-          method: 'none',
-          success: sent,
-        });
+      // 1. Run the real detection engine.
+      const result = detect(original, DEFAULT_POLICY);
+      const metadata = {
+        mode: 'replace' as const,
+        charCount: original.length,
+        countsByCategory: result.countsByCategory,
+        durationMs: result.durationMs,
+        complete: result.complete,
+      };
+
+      // 2. SAFETY RULE: if the check didn't finish, we can't know what's inside — don't send.
+      if (!result.complete) {
+        badge.showError(
+          result.failedDetectors.length > 0
+            ? "Couldn't check this message safely — not sent"
+            : 'Message too long to check safely — not sent',
+        );
+        logIntercept({ ...metadata, replacedCount: 0, method: 'none', success: false });
         return;
       }
 
-      // Swap the text inside ChatGPT's editor (verified by reading it back).
-      const result = await replaceComposerText(composer, protectedText);
-      if (!result.success) {
+      // 3. Work out the protected text. "block" items stop the message entirely.
+      const redaction = testRedact(original, result.detections);
+      if (redaction.blocked.length > 0) {
+        const labels = [...new Set(redaction.blocked.map((d) => CATEGORY_LABEL[d.category]))];
+        badge.showError(`Not sent: contains ${labels.join(', ')}`);
+        logIntercept({ ...metadata, replacedCount: 0, method: 'none', success: false });
+        return;
+      }
+
+      // 4. Nothing to replace ("warn" items are left as they are in Phase 2): send normally.
+      if (redaction.replaced === 0) {
+        const sent = await resend(composer);
+        if (!sent) badge.showError("Couldn't send — please press Send again");
+        logIntercept({ ...metadata, replacedCount: 0, method: 'none', success: sent });
+        return;
+      }
+
+      // 5. Swap the text inside ChatGPT's editor (verified by reading it back).
+      const written = await replaceComposerText(composer, redaction.text);
+      if (!written.success) {
         // SAFETY RULE: we couldn't protect it, so we do NOT send it.
         badge.showError("Couldn't protect this message — not sent");
         logIntercept({
-          mode: 'replace',
-          charCount: original.length,
-          replacedCount: count,
+          ...metadata,
+          replacedCount: redaction.replaced,
           method: 'none',
           success: false,
         });
         return;
       }
-      devLogText(`Protected (${result.method})`, adapter.readText(composer));
+      devLogText(`Protected (${written.method})`, adapter.readText(composer));
 
+      // 6. Send the protected version.
       const sent = await resend(composer);
       if (sent) {
-        badge.showSuccess(`Replaced ${count} email${count === 1 ? '' : 's'}`);
+        badge.showSuccess(summarizeProtection(redaction.replacedByCategory));
       } else {
         // The box already holds the PROTECTED text, so nothing leaks — the user can press Send.
         badge.showError('Protected, but not sent — please press Send');
       }
       logIntercept({
-        mode: 'replace',
-        charCount: original.length,
-        replacedCount: count,
-        method: result.method,
+        ...metadata,
+        replacedCount: redaction.replaced,
+        method: written.method,
         success: sent,
       });
     } finally {

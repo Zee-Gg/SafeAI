@@ -6,8 +6,12 @@
 import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
 
 import {
+  CATEGORY_GROUP,
+  CATEGORY_LABEL,
   getSiteName,
   InterceptRecordSchema,
+  type CategoryGroup,
+  type DetectorCategory,
   type InterceptRecord,
   type PingReply,
 } from '@safeai/shared';
@@ -229,7 +233,7 @@ function TestModeToggle() {
           Test replace mode
         </p>
         <p id="test-mode-help" className="text-xs text-neutral-500">
-          Replaces emails with [EMAIL_1] before sending
+          Replaces sensitive data with placeholders like [EMAIL_1] before sending
         </p>
       </div>
       <button
@@ -277,6 +281,34 @@ function useLastIntercept(): { loaded: boolean; record: InterceptRecord | null }
 }
 
 /** Metadata about the most recent send attempt (never the text). */
+/** Chip colours per category group (static class names so Tailwind can find them). */
+const GROUP_CHIP: Record<CategoryGroup, string> = {
+  personal: 'bg-personal-subtle text-personal',
+  secrets: 'bg-secrets-subtle text-secrets',
+  financial: 'bg-financial-subtle text-financial',
+  business: 'bg-business-subtle text-business',
+};
+
+/** What was found, per category, e.g. "Email 2" "API key 1". Counts only — never values. */
+function CategoryChips({ counts }: { counts: Partial<Record<DetectorCategory, number>> }) {
+  const entries = Object.entries(counts) as [DetectorCategory, number][];
+  if (entries.length === 0) {
+    return <p className="mt-3 text-xs text-neutral-500">Nothing sensitive found.</p>;
+  }
+  return (
+    <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Found per category">
+      {entries.map(([category, count]) => (
+        <li
+          key={category}
+          className={`rounded-full px-2 py-0.5 text-xs font-medium ${GROUP_CHIP[CATEGORY_GROUP[category]]}`}
+        >
+          {CATEGORY_LABEL[category]} {count}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function LastInterceptCard() {
   const now = useNow();
   const { loaded, record } = useLastIntercept();
@@ -310,10 +342,13 @@ function LastInterceptCard() {
         </div>
         <dl className="grid grid-cols-2 gap-2">
           <Stat label="Characters" value={String(record.charCount)} />
-          <Stat label="Emails replaced" value={String(record.replacedCount)} />
+          <Stat label="Items replaced" value={String(record.replacedCount)} />
+          <Stat label="Check time" value={`${record.durationMs.toFixed(1)} ms`} />
+          <Stat label="Check" value={record.complete ? 'complete' : 'incomplete'} />
           <Stat label="Method" value={record.method} />
           <Stat label="Mode" value={record.mode} />
         </dl>
+        <CategoryChips counts={record.countsByCategory} />
       </>
     );
   }

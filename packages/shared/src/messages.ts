@@ -6,6 +6,7 @@
 */
 import { z } from 'zod';
 
+import { DETECTOR_CATEGORIES } from './categories';
 import { SITE_IDS } from './sites';
 
 /* ---------- Building blocks ---------- */
@@ -26,12 +27,18 @@ export const InterceptRecordSchema = z.strictObject({
   charCount: Count,
   /** "observe" = we only watched; "replace" = we changed the text before sending. */
   mode: z.enum(['observe', 'replace']),
-  /** How many distinct items were replaced. */
+  /** How many items were replaced with placeholders. */
   replacedCount: Count,
   /** Which technique changed the text ("none" if nothing was changed). */
   method: z.enum(['insertText', 'paste', 'none']),
   /** False means we could not protect the message, so it was NOT sent. */
   success: z.boolean(),
+  /** How many detections per category, e.g. { email: 2, api_key: 1 }. Counts only, never values. */
+  countsByCategory: z.partialRecord(z.enum(DETECTOR_CATEGORIES), Count),
+  /** How long detection took, in milliseconds. */
+  durationMs: z.number().nonnegative(),
+  /** false = detection didn't finish (too long / a detector failed), so the message was NOT sent. */
+  complete: z.boolean(),
 });
 export type InterceptRecord = z.infer<typeof InterceptRecordSchema>;
 

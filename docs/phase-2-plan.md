@@ -361,8 +361,11 @@ Confidence levels: **high** = almost certainly sensitive, **medium** = probably,
     | **added**                | **+280 kB** | **+63 kB** |
 
     The README's "about 145 kB" is the metadata alone; the rest is the parsing and matching
-    code. The file is loaded from disk, not downloaded. The content script is 330 kB today;
-    M8 will report its real size once it uses the engine.
+    code. The file is loaded from disk, not downloaded.
+  - **Real content-script size (measured by you after M8, production build):**
+    `content-scripts/chatgpt.js` went from **330 kB** (Phase 1) to **580 kB** (with the engine):
+    **+250 kB**, smaller than the engine's standalone 399 kB because the content script already
+    contained React and Zod. For comparison, `popup.js` is 334 kB and `background.js` 105 kB.
 
 ### credit-card (`credit-card.ts`), high
 
@@ -726,6 +729,30 @@ Phase 1 rule kept: if writing the text fails → NOT sent.
 one message), working **from the end of the text backwards** so earlier positions stay correct.
 "warn" findings are left as they are. LOG_INTERCEPT gains `countsByCategory`, `durationMs`,
 `complete`. Still **no text and no values**.
+
+_As built (M8):_
+- **`src/content/test-redact.ts`:** `testRedact(text, detections)` → `{ text, replaced,
+  replacedByCategory, blocked }`. `replaced` counts **occurrences** (an email written twice =
+  2), and placeholders are numbered in reading order. Also `describeCount(category, n)` ("2 API
+  keys") and `summarizeProtection(byCategory)`, which builds the badge text "Protected 3 items (2
+  emails, 1 API key)", showing the 3 biggest categories plus "+N more".
+- **Content script:** the badge messages are as listed above. If `complete` is false because a
+  detector **failed** (rather than ran out of time), the badge says "Couldn't check this message
+  safely — not sent". **Observe mode** also runs the engine, but in a `setTimeout` *after* the
+  event, so ChatGPT's send is never delayed; it logs the category counts too.
+- **Message schema:** `countsByCategory` uses `z.partialRecord(z.enum(DETECTOR_CATEGORIES),
+  Count)`, so only real category names can appear as keys. `durationMs` is a non-negative
+  number. `replacedCount` now means "items replaced".
+- **Background:** `GET_STATUS` re-checks the stored last intercept against today's schema. A
+  Phase 1 record (without counts) is reported as "nothing yet" instead of an invalid reply.
+- **Popup:** the last-intercept card shows Characters, Items replaced, Check time, Check
+  (complete/incomplete), Method and Mode, plus coloured **category chips** (counts only). The
+  toggle's helper text now says "Replaces sensitive data with placeholders like [EMAIL_1]".
+- `src/content/test-transform.ts` was **deleted**.
+- **Limits while testing in ChatGPT:** the extension uses `DEFAULT_POLICY`, which has **no
+  "block" rules** and no custom terms. So "Not sent: contains …" can't happen in ChatGPT in Phase
+  2; the Playground shows block behaviour. "Too long to check safely" needs a scan taking over
+  500 ms, which means an extremely long paste.
 
 ---
 

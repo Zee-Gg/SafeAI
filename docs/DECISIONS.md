@@ -111,3 +111,10 @@
 | **Playground removed from production via the `entrypoints:resolved` hook** | WXT's include/exclude filter only by browser; you check the production output for playground.html |
 | **Playground samples live in `samples.ts`**           | The M6 corpus was skipped; 5 realistic, fully fake samples (keys built at runtime)                         |
 | **Popup Playground link only when `import.meta.env.DEV`** | The code is stripped from production; opening a tab needs no permission                                |
+| **Replace mode uses the real engine + DEFAULT_POLICY**  | Phase 2 goal 4; a policy editor and company policies come later                                        |
+| **Not complete → not sent; block → not sent; write fails → not sent** | If we can't be sure the message is protected, it doesn't leave                               |
+| **Observe mode runs detection after the event (setTimeout)** | Logging counts must never delay ChatGPT's own send                                                 |
+| **`replacedCount` = occurrences; placeholders numbered in reading order** | Matches what the user sees in the sent message                                      |
+| **`countsByCategory` keys restricted to known categories (`z.partialRecord`)** | Metadata only; no free-form keys that could carry text                         |
+| **GET_STATUS drops records that don't match today's schema** | Old Phase 1 records would otherwise produce an invalid reply                                       |
+| **`test-transform.ts` deleted**                       | Replaced by the real engine + `test-redact.ts`                                                           |
