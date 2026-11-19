@@ -87,3 +87,14 @@
 | **Plain 13-digit numbers starting with 1, no CNIC word → skipped**                           | Millisecond timestamps look identical, and national IDs are redacted by default                                                                                                                                                                     |
 | **National-ID test values assembled at runtime**                                             | No complete ID-shaped value is ever written in the source                                                                                                                                                                                           |
 | **eslint-plugin-regexp's slow-regex warning is treated as a bug**                            | It caught a real polynomial-backtracking pattern in the account-number label; fixed and tested                                                                                                                                                      |
+| **API key formats from official docs, with source links in code** | Formats change; each row of `api-key-patterns.ts` names its source so it can be re-checked             |
+| **Slack: no `xoxa-`/`xoxr-` (not in current docs); added `xapp-`, `xoxe-`, `xwfp-`** | Follow the provider's current documentation                                          |
+| **Stripe `sk_org_` organization keys detected**       | Stripe's docs list them as secret                                                                         |
+| **OpenAI legacy `sk-` only with the `T3BlbkFJ` marker** | OpenAI publishes no format; the marker avoids flagging any word starting with `sk-`                     |
+| **AWS secret / Twilio auth token only with context (60 chars before)** | 40 or 32 random characters are far too common on their own                                |
+| **PEM: label read up to the next `-----`; `PRIVATE KEY BLOCK` (PGP) included** | Also works for keys pasted inside JSON on one line; PGP keys are equally secret      |
+| **PEM: END search limited to before the next BEGIN**  | Keeps the scan linear and stops two keys from merging                                                     |
+| **Password: quoted + unquoted regexes; placeholders/settings/code skipped** | Catches values with spaces; avoids flagging `${VAR}`, `true`, `getenv(…)`                       |
+| **Token URLs: `#fragment` parameters too**            | OAuth implicit flow puts `access_token` in the fragment                                                   |
+| **Entropy candidates: `=` only at the end; hex after hash words skipped** | `NAME=value` splits correctly; git hashes and checksums aren't flagged                            |
+| **Claude writes code and tests; the user runs every check** | Your request (2026-11-19); commits happen after you confirm the checks pass                         |

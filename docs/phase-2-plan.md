@@ -433,6 +433,35 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
 | JWT              | **own detector `jwt.ts`, whole-text scope** (see below)                                   |
 | PEM private keys | **own detector `private-key.ts`, whole-text scope, no regex** (see below)                 |
 
+_As built (M4), formats checked against the sources on 2026-11-19:_
+
+| Provider     | ruleId                          | Pattern used                                                        | Source (in the code)                                    |
+| ------------ | ------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
+| OpenAI       | `api_key.openai`                | `sk-proj-` / `sk-svcacct-` / `sk-admin-` + 20–300                   | OpenAI API reference (admin keys); no formal spec       |
+| OpenAI       | `api_key.openai_legacy`         | `sk-` + 20 + `T3BlbkFJ` marker + 20                                 | GitHub secret-scanning list                             |
+| Anthropic    | `api_key.anthropic`             | `sk-ant-` + 20–300                                                  | platform.claude.com (docs examples `sk-ant-api03-…`)    |
+| Stripe       | `api_key.stripe`                | `sk_live_` `sk_test_` `rk_live_` `rk_test_` **`sk_org_`** + 10–250  | docs.stripe.com/keys                                    |
+| GitHub       | `api_key.github`                | `ghp_ gho_ ghu_ ghs_ ghr_` + exactly 36                             | GitHub engineering blog (token formats)                 |
+| GitHub       | `api_key.github_pat`            | `github_pat_` + 22 + `_` + 59                                       | GitHub secret-scanning list                             |
+| AWS          | `api_key.aws_access_key_id`     | `AKIA`/`ASIA` + 16                                                  | AWS IAM identifiers page                                |
+| AWS          | `api_key.aws_secret_access_key` | 40 base64-style chars **only after** aws_secret / secret access key | AWS access-keys page                                    |
+| Google       | `api_key.google`                | `AIza` + 35                                                         | Google Cloud API keys page (its example key)            |
+| Slack        | `api_key.slack`                 | `xoxb- xoxp- xoxo- xoxs- xoxe- xoxe.xapp- xapp- xwfp-`              | docs.slack.dev/authentication/tokens                    |
+| SendGrid     | `api_key.sendgrid`              | `SG.` + 22 + `.` + 43 (= 69 chars, matches Twilio's stated length)  | Twilio SendGrid API keys page                           |
+| Twilio       | `api_key.twilio_api_key`        | `SK` + 32 hex (official `^SK[0-9a-fA-F]{32}$`)                      | Twilio Key resource reference                           |
+| Twilio       | `api_key.twilio_auth_token`     | 32 hex **only after** "twilio" / "auth token"                       | Twilio API keys page                                    |
+| Hugging Face | `api_key.huggingface`           | `hf_` + 30–100                                                      | huggingface.co/docs/hub/security-tokens                 |
+| Supabase     | `api_key.supabase_secret`       | `sb_secret_` + 20–200                                               | supabase.com/docs/guides/api/api-keys                   |
+
+- **Changes from the brief:**
+  - Slack's current docs list `xoxb- xoxp- xapp- xoxe.xapp- xwfp-`, but **not** `xoxa-`/`xoxr-`, so those are left out. `xoxo-`/`xoxs-` are kept because the brief named them (older tokens can still be in use).
+  - Stripe organization keys (`sk_org_`) were added because Stripe's docs list them as secret.
+  - OpenAI publishes no formal key format, so the legacy `sk-` rule requires the `T3BlbkFJ` marker, so it doesn't fire on any word that starts with `sk-`.
+- Every regex may only **start where a token starts** (a lookbehind), so a long run of letters is scanned once.
+- Context-only rows (AWS secret, Twilio auth token) look for their context words in the **60 characters before** the value.
+- **Public keys** live in `PUBLIC_KEY_PREFIXES` + `TWILIO_ACCOUNT_SID` + `isPublicKey()`, documented with the reason. The entropy detector skips them too.
+- **Test values** are all assembled at runtime from pieces (`fakeChars()` in `tests/fixtures/fake-data.ts`). The AWS ones are AWS's own documentation example values, also split into pieces.
+
 ### jwt (`jwt.ts`), high, **runs on the whole text**
 
 - **Why whole text:** JWTs are often 800–1,500 characters, so one could cross a chunk border.
@@ -442,6 +471,10 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
   times, so it stays linear even on a megabyte of text.
 - **Catches:** a JWT built at runtime in the tests from fake parts.
 - **Must NOT catch:** `eyJ` on its own, two-part strings, `version.1.2`.
+- _As built (M4):_ each of the first two parts needs at least 10 characters after `eyJ`; the
+  signature may be empty (unsigned tokens). Category `api_key`, `ruleId` `api_key.jwt`. A test
+  feeds 200,000 characters with no dots to prove it stays fast, and another puts a
+  1,200-character JWT across a chunk border to prove it's found once.
 
 ### private-key (`private-key.ts`), high, **runs on the whole text, no regex at all**
 
@@ -454,6 +487,19 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
   end of that **line block**: the first empty line, or the end of the text.
 - **Tests:** a key crossing a chunk border is found once; a BEGIN with no END; `PUBLIC KEY`
   and `CERTIFICATE` blocks are NOT caught.
+- _As built (M4):_
+  - The label is read from `-----BEGIN ` up to the next `-----`, so it also works for keys
+    pasted inside JSON on one line with `\n` escapes. Labels longer than 40 characters are
+    ignored.
+  - Accepted labels end in `PRIVATE KEY` (PRIVATE KEY, RSA, EC, DSA, OPENSSH, ENCRYPTED) **or
+    `PRIVATE KEY BLOCK`** (PGP private keys: an addition, the same kind of secret).
+  - The matching END must use the **same label**. A different label counts as "no END".
+  - A block never runs past the **next BEGIN**, so two keys can't merge. The END search only
+    looks between this BEGIN and the next one; those stretches never overlap, so the whole scan
+    stays linear even with thousands of BEGIN lines (tested: 5,000).
+  - With no END, the block runs to the first empty line, else the next BEGIN, else the end of
+    the text (a trailing `\r` is left out). Category `api_key`, `ruleId` `api_key.private_key`.
+    `isPrivateKeyLabel(label)` is exported for tests.
 
 - **Must NOT catch (public by design):** Stripe `pk_live_` / `pk_test_`, Supabase
   `sb_publishable_`, Twilio Account SID (`AC` + 32 hex). Tests prove this, with a comment saying
@@ -466,6 +512,16 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
 - **Catches:** `password: Hunter2!` → `Hunter2!`; `DB_PASSWORD=abc123` → `abc123`;
   `"password": "secret"` → `secret`
 - **Must NOT catch:** `forgot password?`, `password reset link`, `the password field`
+- _As built (M4):_
+  - **Two regexes:** a quoted value (`"…"` / `'…'`, may contain spaces) and an unquoted value
+    (stops at whitespace, quotes, `,` `;` `&`, for connection strings and query strings). If
+    both match at the same place, the quoted one wins.
+  - The label must not be glued to letters before it (`bypass`, `spin` don't count), but
+    `DB_PASSWORD` and `user.password` do.
+  - **Skipped values:** shorter than 3 characters; settings words (true, false, null, none, nil,
+    undefined, required, optional, string, yes, no, empty); placeholders starting with
+    `$ { < % *` (`${DB_PASS}`, `{{ … }}`, `<your password>`, `****`); code that *reads* a
+    password (`process.env…`, `getenv(…)`, anything with `(`).
 
 ### token-url (`token-url.ts`), high, secret part only
 
@@ -475,6 +531,13 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
   part of `https://user:pass@host`.
 - **Catches:** `https://x.com/cb?code=TEST_CODE_VALUE&state=1` → only `TEST_CODE_VALUE`
 - **Must NOT catch:** `https://x.com/?page=2`, the host or path of any URL
+- _As built (M4):_
+  - URLs are `http://` or `https://` (up to 2,048 characters), with trailing sentence
+    punctuation trimmed. Parameters are split on `&` or `;`, and names are compared in lowercase.
+  - **Also the `#fragment`**, for the OAuth implicit flow (`#access_token=…`).
+  - `user:password@` counts only with a `:` and a non-empty password (`user@host` alone is
+    skipped), and `@` in the path never counts.
+  - `ruleId`s: `token_url.<parameter name>` and `token_url.credentials`.
 
 ### secret-entropy (`secret-entropy.ts`), catches random-looking leftovers
 
@@ -486,6 +549,28 @@ provider's current docs in M4, and the link goes in `sourceUrl`.
   public key formats.
 - **Must NOT catch:** `550e8400-e29b-41d4-a716-446655440000`, `src/components/Button.tsx`,
   `internationalization`
+- _As built (M4):_
+  - **`=` only at the end** of a candidate (at most two, base64 padding), so
+    `SECRET_KEY=abc…` splits into the name and the value. `/` is not part of a candidate, so
+    paths and URLs break apart; the surrounding word is then checked.
+  - The surrounding word (at most 300 characters each way) is skipped if it contains `://`
+    (URL) or looks like a file path: it starts with `/ ./ ../ ~/ C:\`, contains `\`, or has a
+    `/` and ends in a file extension.
+  - **Context** = key/secret/token/auth/credential in the **40 characters before**.
+  - **Hex strings after hash words** (commit, sha…, hash, md5, checksum, digest) are skipped,
+    so git hashes and checksums aren't flagged (the false-positive corpus in M6 checks this).
+    Other hex lengths are skipped too.
+  - Big base64 = over 500 characters with `base64,` just before it.
+  - `ruleId`s: `secret.entropy` (medium/high) and `secret.hex` (low).
+  - **Speed fix (found in your M4 test run):** with 1,500 candidates in one long word, each
+    candidate re-walked up to 600 characters. Now the cheap checks run first, the surrounding
+    word is looked up only for candidates that would be reported, the last word is reused while
+    the next candidate is still inside it, and whitespace is checked by character code (no
+    regex).
+- **Speed tests (all detectors):** inputs are built **before** the stopwatch starts, and the
+  limit is a generous 2,000 ms. These tests guard against runaway (quadratic) slowness, which
+  takes seconds; with coverage on and 21 test files running in parallel, tight limits failed
+  randomly. Real speed numbers come from the M6 benchmarks.
 
 ### custom-terms (`custom-terms.ts`), high, category from the term
 
@@ -622,8 +707,12 @@ one message), working **from the end of the text backwards** so earlier position
 
 ## 10. Milestones and what you check by hand
 
-After each milestone: changed files + test results + **complete manual steps**, then one git
-commit (pushed), then I wait for "continue".
+After each milestone: changed files + **the exact commands for you to run** (tests, typecheck,
+lint, build) with the expected output + complete manual steps, then I wait for "continue".
+
+**Changed in M4 (your request):** I write the code, including the test files, but **I don't run
+tests or checks**. You run them all. Once you confirm they pass ("continue"), I make that
+milestone's one git commit, push it, and start the next milestone.
 
 | #       | What gets built                                                                                             | What you check                                                               |
 | ------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |

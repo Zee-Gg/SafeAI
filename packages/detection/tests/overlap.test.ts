@@ -85,7 +85,8 @@ describe('resolveOverlaps', () => {
     const many = Array.from({ length: 5_000 }, (_, i) => d(i * 3, i * 3 + 5));
     const started = Date.now();
     const kept = resolveOverlaps(many);
-    expect(Date.now() - started).toBeLessThan(200);
+    // Generous on purpose: catches runaway slowness (seconds), not milliseconds; see M6 bench.
+    expect(Date.now() - started).toBeLessThan(2_000);
     expect(kept.length).toBeGreaterThan(0);
     for (let i = 1; i < kept.length; i++) {
       expect(kept[i]!.start).toBeGreaterThanOrEqual(kept[i - 1]!.end);

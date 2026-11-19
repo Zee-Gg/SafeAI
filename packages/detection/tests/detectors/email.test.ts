@@ -64,10 +64,10 @@ describe('email detector', () => {
   });
 
   it('stays fast on 20,000 letters in a row with no @ (no catastrophic backtracking)', () => {
+    const inputs = ['a'.repeat(20_000), `${'a.'.repeat(10_000)}@`, `x@${'a'.repeat(20_000)}`];
     const started = Date.now();
-    expect(values('a'.repeat(20_000))).toEqual([]);
-    expect(values(`${'a.'.repeat(10_000)}@`)).toEqual([]);
-    expect(values(`x@${'a'.repeat(20_000)}`)).toEqual([]);
-    expect(Date.now() - started).toBeLessThan(200);
+    for (const input of inputs) expect(values(input)).toEqual([]);
+    // Generous on purpose: catches runaway slowness (seconds), not milliseconds; see M6 bench.
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 });

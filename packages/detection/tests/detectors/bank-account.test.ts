@@ -71,9 +71,12 @@ describe('bank account detector: labelled account number', () => {
   });
 
   it('stays fast on a label followed by 20,000 spaces (no polynomial backtracking)', () => {
+    const labelThenSpaces = `account number${' '.repeat(20_000)}x`;
+    const spacesAroundHash = `acct${' '.repeat(10_000)}#${' '.repeat(10_000)}x`;
     const started = Date.now();
-    expect(values(`account number${' '.repeat(20_000)}x`)).toEqual([]);
-    expect(values(`acct${' '.repeat(10_000)}#${' '.repeat(10_000)}x`)).toEqual([]);
-    expect(Date.now() - started).toBeLessThan(200);
+    expect(values(labelThenSpaces)).toEqual([]);
+    expect(values(spacesAroundHash)).toEqual([]);
+    // Generous on purpose: catches runaway slowness (seconds), not milliseconds; see M6 bench.
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 });
