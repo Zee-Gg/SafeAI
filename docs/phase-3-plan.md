@@ -483,3 +483,49 @@ onChange)` → `currentKey()`, `afterSave(savedKey)`. Re-keying works whichever 
 - **Playground:** a bar with the override status, **"Use these settings in ChatGPT (dev)"** and
   **"Clear override"**.
 - **Deleted:** `src/content/test-redact.ts`.
+
+### M3 — Review panel
+
+- **Fonts:** `public/fonts/` holds Geist and Geist Mono (latin + latin-ext, variable woff2) and
+  `OFL-LICENSE.txt`. `wxt.config.ts` makes only `fonts/*.woff2` web-accessible, and only to
+  `https://chatgpt.com/*`. **Change from the plan:** `src/ui/fonts.ts` registers the fonts with
+  the **FontFace API** (`document.fonts.add`) instead of adding a `<style>` to ChatGPT's
+  `<head>`. Same effect (fonts on the page document work inside our Shadow DOM), but nothing is
+  inserted into the page and the page's style rules can't interfere. Family names: "SafeAI
+  Geist" / "SafeAI Geist Mono". New tokens `--font-ui` / `--font-ui-mono` fall back to system
+  fonts. The badge now uses `font-ui` too.
+- **Theme:** `src/ui/theme.ts`: `getChatGptTheme()` (the `dark`/`light` class on `<html>`, then
+  `color-scheme`) and `watchTheme()` (MutationObserver). The panel's wrapper gets
+  `data-theme`, so the semantic tokens switch live.
+- **Shadow DOM CSS fix extended** (`ui.css`): starting values for Tailwind's translate, scale,
+  space and divide variables (Chrome ignores `@property` inside Shadow DOM).
+- **Components** (`src/components/`): `Button` (primary / secondary / ghost, `loading`),
+  `IconButton`, `Checkbox` (a real checkbox, styled), `Badge`, `Chip`, `Tooltip` (hover and
+  focus), `Spinner`, `icons.tsx`.
+- **Panel** (`src/ui/review/`): `model.ts` (pure logic: rows per category + value, choices kept
+  across re-scans, summary, button label, preview pieces), `ReviewPanel`, `MessagePreview`,
+  `AddItemPopover`, `DetectionGroup`, `DetectionRow`, `PanelFooter`, `group-style.ts`,
+  `mountReviewPanel.tsx` (`openReviewPanel(ctx, input)` → `{ decision, close() }`).
+- **Rows are per value**, not per occurrence: "×2" shows when a value appears more than once,
+  and ticking it covers every place it appears.
+- **"Protect this" is a bar under the preview**, not a floating bubble. It never covers text,
+  works at 360 px and is easy to reach by keyboard. You pick the category (default: Custom
+  term).
+- **Wired already in M3** (more than the plan required), so M2's working protection is not lost
+  while the panel exists:
+  - "Protect and Send" / "Send Without Redaction" go through the M2 write → verify → save → send
+    path.
+  - **Before sending**, the final text is scanned again (incomplete or blocked → not sent).
+  - ChatGPT's box must still hold the message you reviewed.
+  - Placeholder memory is re-loaded.
+  - The panel shows a spinner until the send finishes.
+
+  M4 becomes the end-to-end check of the whole flow, plus anything you find.
+
+- **Send flow:** no findings → sent as typed (no panel). Findings, blocked items, or an
+  unfinished scan → the panel. Cancel / Esc / × → `cancelled`. Edit message → `cancelled`, plus
+  the badge hint "Edit your message, then press Enter again". Closing the "Too long" panel →
+  `incomplete`.
+- **Badge:** new `info` state (blue, fades after 4 s).
+- **Playground (dev):** a checkbox **"Lock “redact” items"** sets `allowUserOverride: false` in the
+  override, so the panel's locked rows ("Required by your policy") can be tested by hand.

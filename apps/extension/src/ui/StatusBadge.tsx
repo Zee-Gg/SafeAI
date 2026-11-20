@@ -1,6 +1,7 @@
 /*
   The small SafeAI pill shown at the top-right of chatgpt.com, just under ChatGPT's top bar
   (bottom-right covered ChatGPT's input buttons). It is click-through, except the error state.
+  Uses "SafeAI Geist" once loaded (src/ui/fonts.ts), system fonts until then.
   It lives inside a Shadow DOM (created by the content script), so ChatGPT's CSS can't break it
   and ours can't leak into ChatGPT. A tiny "store" lets the content script change what it shows.
   Note: Tailwind's shadow-* utilities rely on @property, which doesn't work inside Shadow DOM,
@@ -13,6 +14,7 @@ export type BadgeState =
   | { kind: 'paused' }
   | { kind: 'protecting' }
   | { kind: 'success'; message: string }
+  | { kind: 'info'; message: string }
   | { kind: 'error'; message: string };
 
 /** Everything the badge renders: its state plus an optional dev-only info line. */
@@ -32,6 +34,8 @@ export interface BadgeStore {
   setMode: (mode: 'paused' | 'protecting') => void;
   /** Shows a green message that fades back to the resting state after 4 s. */
   showSuccess: (message: string) => void;
+  /** Shows a neutral blue hint (e.g. "Edit your message…") that also fades after 4 s. */
+  showInfo: (message: string) => void;
   /** Shows a red message that stays until the user clicks it. */
   showError: (message: string) => void;
   /** Sets (or clears with null) the small dev-only line, e.g. the selector check. */
@@ -65,6 +69,7 @@ export function createBadgeStore(): BadgeStore {
       if (view.state.kind !== 'error') update({ state: restingState });
     },
     showSuccess: (message) => update({ state: { kind: 'success', message } }),
+    showInfo: (message) => update({ state: { kind: 'info', message } }),
     showError: (message) => update({ state: { kind: 'error', message } }),
     setDevInfo: (devInfo) => update({ devInfo }),
     dismiss: () => update({ state: restingState }),
@@ -78,6 +83,7 @@ const STYLES: Record<BadgeState['kind'], { pill: string; dot: string }> = {
   paused: { pill: 'border-neutral-200 bg-neutral-0 text-neutral-600', dot: 'bg-neutral-400' },
   protecting: { pill: 'border-primary-200 bg-primary-50 text-primary-800', dot: 'bg-primary-600' },
   success: { pill: 'border-success/20 bg-success-subtle text-success', dot: 'bg-success' },
+  info: { pill: 'border-info/20 bg-info-subtle text-info', dot: 'bg-info' },
   error: { pill: 'border-danger/30 bg-danger-subtle text-danger', dot: 'bg-danger' },
 };
 
@@ -88,6 +94,7 @@ function labelFor(state: BadgeState): string {
     case 'protecting':
       return 'SafeAI · Protecting';
     case 'success':
+    case 'info':
     case 'error':
       return `SafeAI · ${state.message}`;
   }
@@ -97,9 +104,9 @@ function labelFor(state: BadgeState): string {
 export function StatusBadge({ store }: { store: BadgeStore }) {
   const { state, devInfo } = useSyncExternalStore(store.subscribe, store.getView);
 
-  // Success messages fade back to the resting state after a few seconds.
+  // Success and info messages fade back to the resting state after a few seconds.
   useEffect(() => {
-    if (state.kind !== 'success') return;
+    if (state.kind !== 'success' && state.kind !== 'info') return;
     const timer = window.setTimeout(() => store.dismiss(), SUCCESS_VISIBLE_MS);
     return () => window.clearTimeout(timer);
   }, [state, store]);
@@ -115,7 +122,7 @@ export function StatusBadge({ store }: { store: BadgeStore }) {
   return (
     // pointer-events-none: clicks pass straight through to ChatGPT, so the badge can never block
     // a ChatGPT button. Only the error badge (which must be clickable) turns them back on.
-    <div className="pointer-events-none fixed top-16 right-4 z-2147483647 flex flex-col items-end gap-1 font-system">
+    <div className="pointer-events-none fixed top-16 right-4 z-2147483647 flex flex-col items-end gap-1 font-ui">
       {state.kind === 'error' ? (
         // Errors stay until clicked, so the badge becomes a real button (keyboard accessible).
         // role="alert" on the wrapper makes screen readers announce the error immediately.

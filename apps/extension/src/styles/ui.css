@@ -1,7 +1,8 @@
 /*
-  Stylesheet for all SafeAI UI: the popup and the in-page badge on chatgpt.com.
+  Stylesheet for all SafeAI UI: the popup, the in-page badge and the review panel on chatgpt.com.
   Loads Tailwind, then our design tokens (which replace Tailwind's default colours).
-  Fonts are NOT loaded here — the popup imports Geist itself; the badge uses system fonts for now.
+  Fonts are NOT loaded here — the popup imports Geist itself; on chatgpt.com src/ui/fonts.ts
+  registers "SafeAI Geist" (used through the font-ui / font-ui-mono classes).
 */
 @import 'tailwindcss';
 @import '@safeai/design/tokens.css';
@@ -28,5 +29,16 @@
     --tw-ring-offset-width: 0px;
     --tw-ring-offset-color: #fff;
     --tw-ring-offset-shadow: 0 0 #0000;
+    /* Phase 3 (review panel): translate/scale and space/divide helpers need starting values too. */
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    --tw-translate-z: 0;
+    --tw-scale-x: 100%;
+    --tw-scale-y: 100%;
+    --tw-scale-z: 100%;
+    --tw-space-x-reverse: 0;
+    --tw-space-y-reverse: 0;
+    --tw-divide-x-reverse: 0;
+    --tw-divide-y-reverse: 0;
   }
 }

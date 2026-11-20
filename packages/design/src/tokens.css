@@ -64,9 +64,19 @@
   --font-mono:
     'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo,
     Consolas, monospace;
-  /* System-only stack for the in-page badge (custom fonts inside Shadow DOM come in Phase 3). */
+  /* System-only stack (fallback for anything shown inside a web page). */
   --font-system:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /*
+    In-page UI on chatgpt.com (badge, review panel), Phase 3. "SafeAI Geist" is registered by
+    src/ui/fonts.ts under OUR OWN name, so it never clashes with the page's fonts; until it has
+    loaded (or if it can't), the system fonts are used.
+  */
+  --font-ui:
+    'SafeAI Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-ui-mono:
+    'SafeAI Geist Mono', ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
 
   /* Font sizes, each with its line height (size / line height in px). */
   --text-xs: 12px;

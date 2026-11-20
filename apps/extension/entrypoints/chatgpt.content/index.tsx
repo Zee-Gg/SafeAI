@@ -1,8 +1,9 @@
 /*
   The content script for chatgpt.com. It runs inside the ChatGPT page (in an "isolated world":
   it shares the page's HTML but not its JavaScript variables) and starts everything there:
-  the status badge, the active policy, conversation tracking, the send interceptor and the
-  send flow (src/content/send-flow.ts). Protection is ON by default; OFF = "Paused" (observe only).
+  the fonts, the status badge, the active policy, conversation tracking, the send interceptor and
+  the send flow (src/content/send-flow.ts), which opens the review panel when a message has
+  findings. Protection is ON by default; OFF = "Paused" (observe only).
 */
 import '../../src/styles/ui.css';
 
@@ -14,11 +15,16 @@ import { browser } from 'wxt/browser';
 import { chatgptAdapter } from '../../src/adapters/chatgpt';
 import type { SiteAdapter } from '../../src/adapters/types';
 import { createConversationTracker } from '../../src/content/conversation';
-import { startInterceptor, stopInterceptor, type InterceptMode } from '../../src/content/interceptor';
+import {
+  startInterceptor,
+  stopInterceptor,
+  type InterceptMode,
+} from '../../src/content/interceptor';
 import { isDevOverrideActive, startPolicySource } from '../../src/content/policy-source';
 import { createSendFlow } from '../../src/content/send-flow';
 import { devLog } from '../../src/lib/logger';
 import { isProtectionEnabled, settingsItem } from '../../src/lib/storage';
+import { ensureFonts } from '../../src/ui/fonts';
 import { createBadgeStore, StatusBadge } from '../../src/ui/StatusBadge';
 
 const COMPOSER_WAIT_MS = 15_000;
@@ -32,6 +38,7 @@ export default defineContentScript({
   async main(ctx) {
     const adapter = chatgptAdapter;
     const badge = createBadgeStore();
+    ensureFonts(); // "SafeAI Geist" for the badge and the review panel (system fonts until loaded)
 
     // 1. The badge, mounted inside a Shadow DOM at the end of <body>.
     const ui = await createShadowRootUi<Root>(ctx, {
@@ -97,7 +104,7 @@ export default defineContentScript({
     );
 
     // 7. Watch for send attempts. getMode is read at the moment of each event.
-    const flow = createSendFlow({ adapter, badge, conversation });
+    const flow = createSendFlow({ ctx, adapter, badge, conversation });
     startInterceptor(
       adapter,
       () => mode,
@@ -137,7 +144,5 @@ async function reportSelectors(
   const check = adapter.checkSelectors();
   devLog('Selector check:', check);
   // The send button only appears after you type, so "–" for it at this point is normal.
-  report(
-    `input ${check.composer ? '✓' : '✗ not found'} · send ${check.sendButton ? '✓' : '–'}`,
-  );
+  report(`input ${check.composer ? '✓' : '✗ not found'} · send ${check.sendButton ? '✓' : '–'}`);
 }

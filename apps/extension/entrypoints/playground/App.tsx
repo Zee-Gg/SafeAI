@@ -35,6 +35,8 @@ interface Settings {
   idCountries: NationalIdCountry[];
   customTermsText: string;
   actions: Actions;
+  /** Phase 3: turn off "allowUserOverride", so redact rows show as locked in the review panel. */
+  lockRedact: boolean;
 }
 
 const RULE_ACTIONS: readonly RuleAction[] = ['redact', 'block', 'warn', 'allow'];
@@ -50,6 +52,7 @@ function defaultSettings(): Settings {
     idCountries: [...DEFAULT_POLICY.nationalIdCountries],
     customTermsText: '',
     actions,
+    lockRedact: false,
   };
 }
 
@@ -123,7 +126,15 @@ const BUTTON_SECONDARY =
   'inline-flex items-center rounded-md border border-neutral-300 bg-neutral-0 px-3 py-1.5 text-sm font-medium text-neutral-800 shadow-sm transition-colors duration-(--duration-fast) ease-out hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 motion-reduce:transition-none';
 
 /** A white rounded section with a heading. */
-function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+function Panel({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section
       aria-label={title}
@@ -322,6 +333,15 @@ function SettingsPanel({
           ))}
         </div>
       </fieldset>
+
+      <label className="mt-3 flex items-center gap-2 text-xs text-neutral-600">
+        <input
+          type="checkbox"
+          checked={settings.lockRedact}
+          onChange={(event) => set({ lockRedact: event.target.checked })}
+        />
+        Lock “redact” items (users can’t untick them in ChatGPT’s review panel)
+      </label>
     </Panel>
   );
 }
@@ -556,7 +576,7 @@ export function App() {
       rules: Object.fromEntries(
         DETECTOR_CATEGORIES.map((category) => [
           category,
-          { action: settings.actions[category], allowUserOverride: true },
+          { action: settings.actions[category], allowUserOverride: !settings.lockRedact },
         ]),
       ) as Policy['rules'],
       customTerms: parsedTerms.terms,
@@ -564,7 +584,13 @@ export function App() {
       defaultPhoneCountry: settings.phoneCountry,
       placeholderHint: DEFAULT_POLICY.placeholderHint,
     }),
-    [settings.actions, settings.idCountries, settings.phoneCountry, parsedTerms.terms],
+    [
+      settings.actions,
+      settings.lockRedact,
+      settings.idCountries,
+      settings.phoneCountry,
+      parsedTerms.terms,
+    ],
   );
 
   // Results update live as you type, 150 ms after you stop.

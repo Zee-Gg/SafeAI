@@ -16,6 +16,11 @@ export default defineConfig({
     name: 'SafeAI',
     description: 'Protects sensitive data in prompts sent to AI chat tools.',
     permissions: ['storage'],
+    // The review panel's fonts (public/fonts). Only chatgpt.com may load them, so no other site
+    // can see or probe these files. This is NOT a permission.
+    web_accessible_resources: [
+      { resources: ['fonts/*.woff2'], matches: ['https://chatgpt.com/*'] },
+    ],
   },
 
   // Tailwind v4 runs as a Vite plugin (WXT uses Vite to bundle the extension).
