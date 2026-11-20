@@ -328,7 +328,9 @@ const ACTION_VIEW: Record<InterceptAction, { label: string; pill: string }> = {
   cancelled: { label: 'Cancelled', pill: 'bg-neutral-100 text-neutral-700' },
   blocked: { label: 'Blocked', pill: 'bg-danger-subtle text-danger' },
   incomplete: { label: 'Too long', pill: 'bg-danger-subtle text-danger' },
-  write_failed: { label: "Couldn't write", pill: 'bg-danger-subtle text-danger' },
+  // Covers every "stopped for safety" case: couldn't write/verify, no memory, message changed,
+  // or the automatic send failed.
+  write_failed: { label: 'Not sent (error)', pill: 'bg-danger-subtle text-danger' },
   paused: { label: 'Paused', pill: 'bg-neutral-100 text-neutral-700' },
 };
 
@@ -425,9 +427,7 @@ function DevToolsCard() {
       )}
       <p className="text-sm text-neutral-700" aria-live="polite">
         Placeholder memory:{' '}
-        <strong className="tabular-nums">
-          {conversations === null ? '–' : conversations}
-        </strong>{' '}
+        <strong className="tabular-nums">{conversations === null ? '–' : conversations}</strong>{' '}
         conversation{conversations === 1 ? '' : 's'}
       </p>
       {message && <p className="mt-1 text-xs text-neutral-500">{message}</p>}

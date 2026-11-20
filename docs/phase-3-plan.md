@@ -529,3 +529,34 @@ onChange)` → `currentKey()`, `afterSave(savedKey)`. Re-keying works whichever 
 - **Badge:** new `info` state (blue, fades after 4 s).
 - **Playground (dev):** a checkbox **"Lock “redact” items"** sets `allowUserOverride: false` in the
   override, so the panel's locked rows ("Required by your policy") can be tested by hand.
+
+### M4 — Full send flow
+
+Most of M4 was wired early in M3: the panel's decision goes through write → verify → save →
+send, with stable placeholders, the hint line, select-to-protect, Remove + re-scan, re-keying
+of new chats, badge messages and every `LOG_INTERCEPT` action. M4 is therefore the end-to-end
+review of that flow, plus these fixes:
+
+- **Popup:** `write_failed` is shown as **"Not sent (error)"**. It covers every "stopped for
+  safety" case: couldn't write or verify, no placeholder memory, the message changed while you
+  were reviewing it, or the automatic send failed.
+- **Panel:** a text selection made before "Remove from message" is cleared when the text
+  changes, so "Protect this" can never add a value that is no longer in the message.
+
+**The whole flow, as built.** Enter →
+
+1. Scan. If there are no findings, the message is sent as typed (`sent_clean`).
+2. Otherwise, load placeholder memory. If that fails, nothing is sent (`write_failed`).
+3. The panel opens.
+4. **Cancel / Esc / × / Edit message** → `cancelled` (or `incomplete` from the "Too long" state).
+5. **Send:**
+   - re-scan the final text (incomplete → `incomplete`; blocked → `blocked`);
+   - ChatGPT's box must still hold the reviewed text;
+   - reload placeholder memory;
+   - `buildRedaction`;
+   - write and read back, only if the text changed;
+   - save the new placeholders and the hint status;
+   - send;
+   - re-key a new chat;
+   - badge;
+   - log: `protected` / `sent_unredacted` / `sent_clean` / `write_failed`.

@@ -34,6 +34,14 @@ export function MessagePreview({ text, rows, output, onAdd, disabled }: MessageP
   const baseId = useId();
   const pieces = useMemo(() => messagePieces(text, rows), [text, rows]);
 
+  // "Remove from message" changes the text: a selection made before that no longer applies.
+  // (React's recommended way to reset state when a prop changes, without an effect.)
+  const [selectionText, setSelectionText] = useState(text);
+  if (selectionText !== text) {
+    setSelectionText(text);
+    setSelected(null);
+  }
+
   /** Reads the current text selection and offers "Protect this" if it's inside the message. */
   function readSelection() {
     const box = contentRef.current;
