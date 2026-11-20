@@ -23,6 +23,7 @@ import {
   type RuleAction,
 } from '@safeai/shared';
 
+import { devPolicyOverrideItem } from '../../src/lib/storage';
 import { SAMPLES } from './samples';
 
 /* ---------- Settings (in memory only) ---------- */
@@ -476,6 +477,65 @@ function ResultsPanel({ text, result }: { text: string; result: DetectResult }) 
   );
 }
 
+/* ---------- Dev policy override ---------- */
+
+/**
+ * DEV ONLY: copies the Playground's settings into ChatGPT (as `devPolicyOverride`), or clears
+ * them. Only settings are stored (actions, custom terms, countries) — never the text you paste.
+ */
+function DevOverrideBar({ policy }: { policy: Policy }) {
+  const [active, setActive] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    const item = devPolicyOverrideItem;
+    if (!item) return;
+    void item.getValue().then((value) => setActive(value !== null));
+    return item.watch((value) => setActive(value !== null));
+  }, []);
+
+  async function saveForChatGpt() {
+    await devPolicyOverrideItem?.setValue(policy);
+    setMessage('Saved. ChatGPT tabs now use these settings (reload not needed).');
+  }
+
+  async function clearOverride() {
+    await devPolicyOverrideItem?.setValue(null);
+    setMessage('Override cleared. ChatGPT tabs use the default policy again.');
+  }
+
+  return (
+    <section
+      aria-label="Use these settings in ChatGPT"
+      className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-0 px-4 py-3 shadow-sm"
+    >
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+          active ? 'bg-warning-subtle text-warning' : 'bg-neutral-100 text-neutral-600'
+        }`}
+      >
+        {active ? 'Dev policy override active' : 'ChatGPT uses the default policy'}
+      </span>
+      <button type="button" className={BUTTON_SECONDARY} onClick={() => void saveForChatGpt()}>
+        Use these settings in ChatGPT (dev)
+      </button>
+      <button
+        type="button"
+        className={BUTTON_SECONDARY}
+        onClick={() => void clearOverride()}
+        disabled={!active}
+      >
+        Clear override
+      </button>
+      {message && (
+        <p className="text-xs text-neutral-500" role="status">
+          {message}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /* ---------- Page ---------- */
 
 /** The whole Playground page. */
@@ -502,6 +562,7 @@ export function App() {
       customTerms: parsedTerms.terms,
       nationalIdCountries: settings.idCountries,
       defaultPhoneCountry: settings.phoneCountry,
+      placeholderHint: DEFAULT_POLICY.placeholderHint,
     }),
     [settings.actions, settings.idCountries, settings.phoneCountry, parsedTerms.terms],
   );
@@ -517,9 +578,11 @@ export function App() {
           SafeAI · Detection Playground
         </h1>
         <span className="rounded-full bg-warning-subtle px-2 py-0.5 text-xs font-medium text-warning">
-          Dev only · nothing is stored
+          Dev only
         </span>
       </header>
+
+      <DevOverrideBar policy={policy} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="flex flex-col gap-4">

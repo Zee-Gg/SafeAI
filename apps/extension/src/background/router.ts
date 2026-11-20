@@ -1,14 +1,18 @@
 /*
   The background worker's message router: checks each incoming message with Zod, then decides
   what to do with it. It never throws — bad input gets an { ok: false, error } reply instead.
-  PRIVACY: LOG_INTERCEPT payloads are metadata only; the strict schema rejects any extra field.
+  PRIVACY: LOG_INTERCEPT is metadata only. Placeholder-memory messages carry real values, so they
+  pass the strict sender guard first (sender-guard.ts), and their payloads are NEVER logged.
 */
 import {
   BackgroundRequestSchema,
   InterceptRecordSchema,
+  type BackgroundRequest,
   type ErrorReply,
   type GetStatusReply,
-  type LogInterceptReply,
+  type MappingGetReply,
+  type MappingStatsReply,
+  type OkReply,
   type PingReply,
 } from '@safeai/shared';
 import { browser, type Browser } from 'wxt/browser';
@@ -16,16 +20,59 @@ import { browser, type Browser } from 'wxt/browser';
 import { devLog } from '../lib/logger';
 import { lastInterceptItem } from '../lib/storage';
 import { bumpCounters, workerStartedAt } from './lifecycle-lab';
+import { mappingStore } from './mapping-store';
+import {
+  clearNewKeyOwners,
+  isChatGptContentScript,
+  isExtensionPage,
+  mayUseConversation,
+  releaseNewKey,
+} from './sender-guard';
 
 /** Every reply the router can send. */
-export type BackgroundReply = PingReply | GetStatusReply | LogInterceptReply | ErrorReply;
+export type BackgroundReply =
+  | PingReply
+  | GetStatusReply
+  | OkReply
+  | MappingGetReply
+  | MappingStatsReply
+  | ErrorReply;
+
+// Refusals say just "Not allowed". Dev builds add which check refused it (still no values).
+const WRONG_CONVERSATION: ErrorReply = {
+  ok: false,
+  error: import.meta.env.DEV ? 'Not allowed (conversation check)' : 'Not allowed',
+};
+const WRONG_SENDER: ErrorReply = {
+  ok: false,
+  error: import.meta.env.DEV ? 'Not allowed (sender check)' : 'Not allowed',
+};
+
+/**
+ * Who may send each message type. Messages with real values: only the ChatGPT content script.
+ * Popup-only tools: only our own extension pages. Everything else: any part of our extension.
+ */
+function isSenderAllowed(type: BackgroundRequest['type'], sender: Browser.runtime.MessageSender): boolean {
+  switch (type) {
+    case 'MAPPING_GET':
+    case 'MAPPING_SAVE':
+    case 'MAPPING_MARK_HINT':
+    case 'MAPPING_REKEY':
+      return isChatGptContentScript(sender);
+    case 'MAPPING_CLEAR_ALL':
+    case 'MAPPING_STATS':
+      return isExtensionPage(sender);
+    default:
+      return true;
+  }
+}
 
 /** Validates one incoming message and returns the reply for it. Never throws. */
 export async function handleMessage(
   message: unknown,
   sender: Browser.runtime.MessageSender,
 ): Promise<BackgroundReply> {
-  // Only accept messages from our own extension (popup or content script).
+  // Only accept messages from our own extension (popup, extension pages or content script).
   if (sender.id !== browser.runtime.id) {
     return { ok: false, error: 'Unknown sender' };
   }
@@ -40,26 +87,74 @@ export async function handleMessage(
     return { ok: false, error: `Invalid message — ${problems}` };
   }
 
+  const request = parsed.data;
+  if (!isSenderAllowed(request.type, sender)) {
+    devLog('Refused message from a sender that is not allowed:', request.type); // type only
+    return WRONG_SENDER;
+  }
+
   try {
-    const request = parsed.data;
     switch (request.type) {
       case 'PING': {
         const counters = await bumpCounters();
         return { ...counters, workerStartedAt };
       }
       case 'GET_STATUS': {
-        // A record saved by an older version (e.g. Phase 1, without category counts) doesn't
-        // match today's shape: report "nothing yet" instead of sending an invalid reply.
+        // A record saved by an older version (without today's fields) doesn't match today's
+        // shape: report "nothing yet" instead of sending an invalid reply.
         const stored = InterceptRecordSchema.safeParse(await lastInterceptItem.getValue());
         return { lastIntercept: stored.success ? stored.data : null, workerStartedAt };
       }
       case 'LOG_INTERCEPT': {
         await lastInterceptItem.setValue(request.payload);
-        devLog('Intercept logged:', request.payload);
+        devLog('Intercept logged:', request.payload); // metadata only
         return { ok: true };
+      }
+
+      // ---- Placeholder memory: values inside, so nothing below is ever logged. ----
+      case 'MAPPING_GET': {
+        if (!(await mayUseConversation(sender, request.key))) return WRONG_CONVERSATION;
+        return { mapping: await mappingStore.getMapping(request.key) };
+      }
+      case 'MAPPING_SAVE': {
+        if (!(await mayUseConversation(sender, request.key))) return WRONG_CONVERSATION;
+        await mappingStore.saveEntries(request.key, request.entries, request.counters);
+        return { ok: true };
+      }
+      case 'MAPPING_MARK_HINT': {
+        if (!(await mayUseConversation(sender, request.key))) return WRONG_CONVERSATION;
+        await mappingStore.markHintSent(request.key);
+        return { ok: true };
+      }
+      case 'MAPPING_REKEY': {
+        // Only a new-chat key can be moved, only by the tab that owns it, and only to the
+        // conversation that tab is now showing.
+        const allowed =
+          request.fromKey.startsWith('chatgpt:new:') &&
+          !request.toKey.startsWith('chatgpt:new:') &&
+          (await mayUseConversation(sender, request.fromKey)) &&
+          (await mayUseConversation(sender, request.toKey));
+        if (!allowed) return WRONG_CONVERSATION;
+        await mappingStore.rekey(request.fromKey, request.toKey);
+        await releaseNewKey(request.fromKey);
+        return { ok: true };
+      }
+      case 'MAPPING_CLEAR_ALL': {
+        await mappingStore.clearAll();
+        await clearNewKeyOwners();
+        return { ok: true };
+      }
+      case 'MAPPING_STATS': {
+        return { conversations: await mappingStore.countConversations() };
       }
     }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Generic message only: errors here could otherwise echo values. Dev: the error's NAME only.
+    const name = error instanceof Error ? error.name : typeof error;
+    devLog('Handler failed for', request.type, '— error type:', name);
+    return {
+      ok: false,
+      error: import.meta.env.DEV ? `Something went wrong (${name})` : 'Something went wrong',
+    };
   }
 }

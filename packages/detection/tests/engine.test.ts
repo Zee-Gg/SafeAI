@@ -49,8 +49,13 @@ const brokenDetector: Detector = {
 };
 
 describe('detect()', () => {
-  it('exports only detect() and the default budget from the front door', () => {
-    expect(Object.keys(publicApi).sort()).toEqual(['DEFAULT_TIME_BUDGET_MS', 'detect']);
+  it('exports only detect(), the default budget and normalizeTerm from the front door', () => {
+    // normalizeTerm was added in Phase 3 (placeholder reuse for custom terms).
+    expect(Object.keys(publicApi).sort()).toEqual([
+      'DEFAULT_TIME_BUDGET_MS',
+      'detect',
+      'normalizeTerm',
+    ]);
     expect(DEFAULT_TIME_BUDGET_MS).toBe(500);
   });
 

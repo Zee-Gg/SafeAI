@@ -46,6 +46,11 @@ export const PolicySchema = z.strictObject({
   nationalIdCountries: z.array(z.enum(NATIONAL_ID_COUNTRIES)),
   /** Two-letter country code used for phone numbers written without +country, e.g. "PK". */
   defaultPhoneCountry: z.string().regex(/^[A-Z]{2}$/), // exactly two capital letters
+  /**
+   * Add the line "(Note: keep any [LABEL_n] placeholders exactly as written.)" to the first
+   * protected message of each conversation, so the AI keeps placeholders intact.
+   */
+  placeholderHint: z.boolean(),
 });
 export type Policy = z.infer<typeof PolicySchema>;
 
@@ -78,4 +83,5 @@ export const DEFAULT_POLICY: Policy = {
   customTerms: [],
   nationalIdCountries: ['PK', 'US', 'UK', 'AE'],
   defaultPhoneCountry: 'PK',
+  placeholderHint: true,
 };

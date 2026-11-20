@@ -10,8 +10,8 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 /** What the badge is currently showing. */
 export type BadgeState =
-  | { kind: 'observing' }
-  | { kind: 'replaceOn' }
+  | { kind: 'paused' }
+  | { kind: 'protecting' }
   | { kind: 'success'; message: string }
   | { kind: 'error'; message: string };
 
@@ -29,7 +29,7 @@ export interface BadgeStore {
   getView: () => BadgeView;
   subscribe: (listener: () => void) => () => void;
   /** Sets the resting state shown when nothing special is happening. */
-  setMode: (mode: 'observing' | 'replaceOn') => void;
+  setMode: (mode: 'paused' | 'protecting') => void;
   /** Shows a green message that fades back to the resting state after 4 s. */
   showSuccess: (message: string) => void;
   /** Shows a red message that stays until the user clicks it. */
@@ -42,9 +42,9 @@ export interface BadgeStore {
 
 const SUCCESS_VISIBLE_MS = 4000;
 
-/** Creates a badge store, starting in the "observing" state. */
+/** Creates a badge store, starting in the "protecting" state. */
 export function createBadgeStore(): BadgeStore {
-  let restingState: BadgeState = { kind: 'observing' };
+  let restingState: BadgeState = { kind: 'protecting' };
   let view: BadgeView = { state: restingState, devInfo: null };
   const listeners = new Set<() => void>();
 
@@ -75,18 +75,18 @@ const PILL =
   'flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium [box-shadow:var(--shadow-lg)] transition-opacity duration-(--duration-base) ease-out starting:opacity-0 motion-reduce:transition-none';
 
 const STYLES: Record<BadgeState['kind'], { pill: string; dot: string }> = {
-  observing: { pill: 'border-neutral-200 bg-neutral-0 text-neutral-700', dot: 'bg-primary-500' },
-  replaceOn: { pill: 'border-primary-200 bg-primary-50 text-primary-800', dot: 'bg-primary-600' },
+  paused: { pill: 'border-neutral-200 bg-neutral-0 text-neutral-600', dot: 'bg-neutral-400' },
+  protecting: { pill: 'border-primary-200 bg-primary-50 text-primary-800', dot: 'bg-primary-600' },
   success: { pill: 'border-success/20 bg-success-subtle text-success', dot: 'bg-success' },
   error: { pill: 'border-danger/30 bg-danger-subtle text-danger', dot: 'bg-danger' },
 };
 
 function labelFor(state: BadgeState): string {
   switch (state.kind) {
-    case 'observing':
-      return 'SafeAI · Observing';
-    case 'replaceOn':
-      return 'SafeAI · Test replace ON';
+    case 'paused':
+      return 'SafeAI · Paused';
+    case 'protecting':
+      return 'SafeAI · Protecting';
     case 'success':
     case 'error':
       return `SafeAI · ${state.message}`;

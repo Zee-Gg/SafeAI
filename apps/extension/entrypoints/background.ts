@@ -8,7 +8,7 @@ import { browser } from 'wxt/browser';
 
 import { handleMessage } from '../src/background/router';
 import { devLog } from '../src/lib/logger';
-import { DEFAULT_SETTINGS, settingsItem } from '../src/lib/storage';
+import { DEFAULT_SETTINGS, migrateSettings, settingsItem } from '../src/lib/storage';
 
 export default defineBackground(() => {
   // WHY THIS LISTENER IS ADDED FIRST, SYNCHRONOUSLY (no `await` before it):
@@ -22,11 +22,15 @@ export default defineBackground(() => {
     return true;
   });
 
-  // First install: write the default settings so every part of the extension sees the same values.
+  // First install: write the default settings (protection ON).
+  // Update (e.g. from Phase 2): migrate the old { testReplaceMode } setting to protection ON.
   browser.runtime.onInstalled.addListener(({ reason }) => {
     if (reason === 'install') {
       void settingsItem.setValue(DEFAULT_SETTINGS);
       devLog('Installed — default settings saved');
+    } else if (reason === 'update') {
+      void migrateSettings();
+      devLog('Updated — settings migrated');
     }
   });
 

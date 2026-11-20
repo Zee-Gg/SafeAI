@@ -1,6 +1,7 @@
 /*
-  The popup screen: header, status, test-replace toggle, last intercept, service-worker lab and
-  footer. Every colour, radius and shadow comes from the design tokens.
+  The popup screen: Protection switch (On / Paused), status, last activity, and — in dev builds
+  only — dev tools (override warning, placeholder-memory count, clear memory), the service-worker
+  lab and the Playground link. Every colour, radius and shadow comes from the design tokens.
   Accessibility: real <button>s, visible focus rings, live regions for changing values.
 */
 import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
@@ -12,13 +13,19 @@ import {
   InterceptRecordSchema,
   type CategoryGroup,
   type DetectorCategory,
+  type InterceptAction,
   type InterceptRecord,
   type PingReply,
 } from '@safeai/shared';
 import { browser } from 'wxt/browser';
 
 import { pingContentScript, sendToBackground } from '../../src/lib/messaging';
-import { lastInterceptItem, settingsItem } from '../../src/lib/storage';
+import {
+  devPolicyOverrideItem,
+  isProtectionEnabled,
+  lastInterceptItem,
+  settingsItem,
+} from '../../src/lib/storage';
 
 /* ---------- Helpers ---------- */
 
@@ -104,9 +111,11 @@ function Header() {
     <header className="flex items-center gap-2 border-b border-neutral-200 bg-neutral-0 px-4 py-3">
       <ShieldIcon className="size-6 text-primary-600" />
       <h1 className="text-md font-semibold tracking-tight text-neutral-900">SafeAI</h1>
-      <span className="ml-auto rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 ring-1 ring-primary-200 ring-inset">
-        Phase 1 · Dev
-      </span>
+      {import.meta.env.DEV && (
+        <span className="ml-auto rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 ring-1 ring-primary-200 ring-inset">
+          Phase 3 · Dev
+        </span>
+      )}
     </header>
   );
 }
@@ -190,7 +199,7 @@ function StatusCard() {
     inactive: {
       dot: 'bg-neutral-400',
       title: 'Open chatgpt.com to start',
-      hint: 'SafeAI only runs on ChatGPT in Phase 1.',
+      hint: 'SafeAI runs on ChatGPT for now.',
     },
   }[status];
 
@@ -208,40 +217,43 @@ function StatusCard() {
   );
 }
 
-/** The "Test replace mode" switch. Saved in storage; ChatGPT tabs react instantly (they watch it). */
-function TestModeToggle() {
+/** The Protection switch (On / Paused). Saved in storage; ChatGPT tabs react instantly. */
+function ProtectionToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null); // null = still loading
 
   useEffect(() => {
-    void settingsItem.getValue().then((settings) => setEnabled(settings.testReplaceMode));
-    return settingsItem.watch((settings) => setEnabled(settings?.testReplaceMode ?? false));
+    void settingsItem.getValue().then((settings) => setEnabled(isProtectionEnabled(settings)));
+    return settingsItem.watch((settings) => setEnabled(isProtectionEnabled(settings)));
   }, []);
 
   function toggle() {
     if (enabled === null) return;
-    void settingsItem.setValue({ testReplaceMode: !enabled });
+    void settingsItem.setValue({ protectionEnabled: !enabled });
   }
 
-  const on = enabled === true;
+  const on = enabled !== false;
   return (
     <section
-      aria-label="Test replace mode"
+      aria-label="Protection"
       className="flex items-center justify-between gap-4 rounded-lg border border-neutral-200 bg-neutral-0 px-4 py-3 shadow-sm"
     >
       <div>
-        <p id="test-mode-label" className="text-sm font-semibold text-neutral-900">
-          Test replace mode
+        <p id="protection-label" className="text-sm font-semibold text-neutral-900">
+          Protection{' '}
+          <span className={on ? 'text-success' : 'text-neutral-500'}>· {on ? 'On' : 'Paused'}</span>
         </p>
-        <p id="test-mode-help" className="text-xs text-neutral-500">
-          Replaces sensitive data with placeholders like [EMAIL_1] before sending
+        <p id="protection-help" className="text-xs text-neutral-500">
+          {on
+            ? 'Every message is checked before it reaches ChatGPT.'
+            : 'Messages are sent unchanged. SafeAI only observes.'}
         </p>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={on}
-        aria-labelledby="test-mode-label"
-        aria-describedby="test-mode-help"
+        aria-labelledby="protection-label"
+        aria-describedby="protection-help"
         disabled={enabled === null}
         onClick={toggle}
         className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors duration-(--duration-fast) ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
@@ -280,7 +292,6 @@ function useLastIntercept(): { loaded: boolean; record: InterceptRecord | null }
   return state;
 }
 
-/** Metadata about the most recent send attempt (never the text). */
 /** Chip colours per category group (static class names so Tailwind can find them). */
 const GROUP_CHIP: Record<CategoryGroup, string> = {
   personal: 'bg-personal-subtle text-personal',
@@ -309,7 +320,20 @@ function CategoryChips({ counts }: { counts: Partial<Record<DetectorCategory, nu
   );
 }
 
-function LastInterceptCard() {
+/** How each action is shown: its label and pill colours. */
+const ACTION_VIEW: Record<InterceptAction, { label: string; pill: string }> = {
+  protected: { label: 'Protected', pill: 'bg-success-subtle text-success' },
+  sent_clean: { label: 'Sent clean', pill: 'bg-success-subtle text-success' },
+  sent_unredacted: { label: 'Sent without redaction', pill: 'bg-warning-subtle text-warning' },
+  cancelled: { label: 'Cancelled', pill: 'bg-neutral-100 text-neutral-700' },
+  blocked: { label: 'Blocked', pill: 'bg-danger-subtle text-danger' },
+  incomplete: { label: 'Too long', pill: 'bg-danger-subtle text-danger' },
+  write_failed: { label: "Couldn't write", pill: 'bg-danger-subtle text-danger' },
+  paused: { label: 'Paused', pill: 'bg-neutral-100 text-neutral-700' },
+};
+
+/** What SafeAI did with the most recent message (metadata only, never text or values). */
+function LastActivityCard() {
   const now = useNow();
   const { loaded, record } = useLastIntercept();
 
@@ -319,34 +343,28 @@ function LastInterceptCard() {
   } else if (!record) {
     body = (
       <div className="rounded-md border border-dashed border-neutral-200 px-3 py-4 text-center">
-        <p className="text-sm font-medium text-neutral-700">No messages yet</p>
+        <p className="text-sm font-medium text-neutral-700">No activity yet</p>
         <p className="text-xs text-neutral-500">
           Send a message on chatgpt.com and it shows up here.
         </p>
       </div>
     );
   } else {
+    const view = ACTION_VIEW[record.action];
     body = (
       <>
         <div className="mb-2 flex items-center justify-between gap-2">
           <p className="text-sm text-neutral-700">
             {getSiteName(record.site)} · {timeAgo(record.at, now)}
           </p>
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-              record.success ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger'
-            }`}
-          >
-            {record.success ? 'Success' : 'Failed — not sent'}
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view.pill}`}>
+            {view.label}
           </span>
         </div>
-        <dl className="grid grid-cols-2 gap-2">
+        <dl className="grid grid-cols-3 gap-2">
+          <Stat label="Replaced" value={String(record.replacedCount)} />
+          <Stat label="Scan time" value={`${record.durationMs.toFixed(1)} ms`} />
           <Stat label="Characters" value={String(record.charCount)} />
-          <Stat label="Items replaced" value={String(record.replacedCount)} />
-          <Stat label="Check time" value={`${record.durationMs.toFixed(1)} ms`} />
-          <Stat label="Check" value={record.complete ? 'complete' : 'incomplete'} />
-          <Stat label="Method" value={record.method} />
-          <Stat label="Mode" value={record.mode} />
         </dl>
         <CategoryChips counts={record.countsByCategory} />
       </>
@@ -354,8 +372,65 @@ function LastInterceptCard() {
   }
 
   return (
-    <Card title="Last intercept">
+    <Card title="Last activity">
       <div aria-live="polite">{body}</div>
+    </Card>
+  );
+}
+
+/**
+ * DEV BUILDS ONLY: Playground override warning, placeholder-memory count (a number only, never
+ * values) and a button to clear that memory.
+ */
+function DevToolsCard() {
+  const [conversations, setConversations] = useState<number | null>(null);
+  const [overrideActive, setOverrideActive] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function refreshCount() {
+    const result = await sendToBackground({ type: 'MAPPING_STATS' });
+    setConversations(result.ok ? result.data.conversations : null);
+  }
+
+  useEffect(() => {
+    void refreshCount();
+    const item = devPolicyOverrideItem;
+    if (!item) return;
+    void item.getValue().then((value) => setOverrideActive(value !== null));
+    return item.watch((value) => setOverrideActive(value !== null));
+  }, []);
+
+  async function clearMemory() {
+    const result = await sendToBackground({ type: 'MAPPING_CLEAR_ALL' });
+    setMessage(result.ok ? 'Placeholder memory cleared.' : `Couldn't clear: ${result.error}`);
+    await refreshCount();
+  }
+
+  const clearButton = (
+    <button
+      type="button"
+      onClick={() => void clearMemory()}
+      className="inline-flex items-center rounded-md border border-neutral-300 bg-neutral-0 px-3 py-1.5 text-sm font-medium text-neutral-800 shadow-sm transition-colors duration-(--duration-fast) ease-out hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 motion-reduce:transition-none"
+    >
+      Clear placeholder memory
+    </button>
+  );
+
+  return (
+    <Card title="Dev tools" action={clearButton}>
+      {overrideActive && (
+        <p className="mb-2 inline-flex rounded-full bg-warning-subtle px-2 py-0.5 text-xs font-medium text-warning">
+          Dev policy override active
+        </p>
+      )}
+      <p className="text-sm text-neutral-700" aria-live="polite">
+        Placeholder memory:{' '}
+        <strong className="tabular-nums">
+          {conversations === null ? '–' : conversations}
+        </strong>{' '}
+        conversation{conversations === 1 ? '' : 's'}
+      </p>
+      {message && <p className="mt-1 text-xs text-neutral-500">{message}</p>}
     </Card>
   );
 }
@@ -389,10 +464,11 @@ export function App() {
     <div className="flex flex-col">
       <Header />
       <main className="flex flex-col gap-3 p-4">
+        <ProtectionToggle />
         <StatusCard />
-        <TestModeToggle />
-        <LastInterceptCard />
-        <WorkerLabCard />
+        <LastActivityCard />
+        {import.meta.env.DEV && <DevToolsCard />}
+        {import.meta.env.DEV && <WorkerLabCard />}
       </main>
       <Footer />
     </div>

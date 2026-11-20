@@ -102,4 +102,57 @@
   --duration-fast: 150ms;
   --duration-base: 200ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /*
+    Semantic colours (Phase 3): name the ROLE, not the shade. Light values below; dark values
+    in the [data-theme='dark'] block further down. Components that use these (bg-surface,
+    text-fg, border-line, bg-action…) switch theme automatically.
+  */
+  --color-canvas: #ffffff; /* the page/panel background */
+  --color-surface: #ffffff; /* cards and the panel body */
+  --color-surface-muted: #f6f8fa; /* subtle areas: preview box, table headers */
+  --color-line: #dfe4ea; /* borders and dividers */
+  --color-fg: #171c26; /* main text */
+  --color-fg-muted: #6b7686; /* secondary text */
+  --color-action: #0c7f7b; /* primary button */
+  --color-action-hover: #0a6663;
+  --color-on-action: #ffffff; /* text on the primary button */
+  --color-focus: #0c7f7b; /* focus rings */
+  --color-backdrop: rgba(13, 17, 24, 0.45); /* dim layer behind a modal */
+}
+
+/*
+  Dark theme (Phase 3 blueprint): applied to any element with data-theme="dark" and everything
+  inside it (the review panel and badge set this to match ChatGPT's theme).
+*/
+[data-theme='dark'] {
+  --color-canvas: #0d1118;
+  --color-surface: #151a23;
+  --color-surface-muted: #1b212c;
+  --color-line: #262d3a;
+  --color-fg: #e6eaf0;
+  --color-fg-muted: #9aa5b3;
+  --color-action: #2fb8b0;
+  --color-action-hover: #67d4cb;
+  --color-on-action: #042827;
+  --color-focus: #2fb8b0;
+  --color-backdrop: rgba(0, 0, 0, 0.6);
+
+  /* Status and category colours: lighter text on deep tinted backgrounds, readable on dark. */
+  --color-success: #4ade80;
+  --color-success-subtle: #12291c;
+  --color-warning: #f5b041;
+  --color-warning-subtle: #33260f;
+  --color-danger: #ff8a80;
+  --color-danger-subtle: #3b1a17;
+  --color-info: #8fb0ff;
+  --color-info-subtle: #16244a;
+  --color-personal: #c4a5ff;
+  --color-personal-subtle: #2a1f45;
+  --color-secrets: #ff8a80;
+  --color-secrets-subtle: #3b1a17;
+  --color-financial: #f5b041;
+  --color-financial-subtle: #33260f;
+  --color-business: #8fb0ff;
+  --color-business-subtle: #16244a;
 }
