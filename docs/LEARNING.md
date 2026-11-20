@@ -173,9 +173,9 @@ The engine is a function: **text + policy in → list of findings out**. Each fi
 | Step        | What happens                                                                              | File             |
 | ----------- | ----------------------------------------------------------------------------------------- | ---------------- |
 | 1. Prepare  | Work out which detectors are on; build the custom-term search machine (once, then cached) | `context.ts`     |
-| 2. Chunk    | Cut long text into 20,000-character pieces that overlap by 500                             | `chunking.ts`    |
+| 2. Chunk    | Cut long text into 20,000-character pieces that overlap by 500                            | `chunking.ts`    |
 | 3. Detect   | Each detector looks for its kind of data; positions are shifted back to the original text | `detectors/*.ts` |
-| 4. Actions  | Each finding gets redact / block / warn from the policy; "allow" findings are dropped      | `engine.ts`      |
+| 4. Actions  | Each finding gets redact / block / warn from the policy; "allow" findings are dropped     | `engine.ts`      |
 | 5. Clean up | Remove duplicates from the overlaps; where findings overlap, keep only the winner         | `overlap.ts`     |
 | 6. Output   | Sort by position, count per category, measure the time, say whether it finished           | `engine.ts`      |
 
@@ -206,14 +206,14 @@ tries every way of splitting the run between the inner and outer repeat.
 
 Our layers of protection:
 
-| #   | Layer                              | What it does                                                                                             |
-| --- | ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1   | **eslint-plugin-regexp**           | Flags risky patterns while typing. It caught a real one in Phase 2 (two `\s*` that could trade spaces).  |
-| 2   | **Writing style**                  | No nested repeats; matches only start at a token's beginning; names/addresses use code, not big regexes  |
-| 3   | **Chunking**                       | Most regexes never see more than 20,000 characters at once                                               |
-| 4   | **Time budget (500 ms)**           | If scanning takes too long, the engine stops and says `complete: false`                                   |
-| 5   | **"Not complete → not sent"**      | The extension never sends a message it couldn't fully check                                               |
-| 6   | **No regex where it isn't needed** | Private keys are found with plain `indexOf`; custom terms with Aho-Corasick                               |
+| #   | Layer                              | What it does                                                                                            |
+| --- | ---------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1   | **eslint-plugin-regexp**           | Flags risky patterns while typing. It caught a real one in Phase 2 (two `\s*` that could trade spaces). |
+| 2   | **Writing style**                  | No nested repeats; matches only start at a token's beginning; names/addresses use code, not big regexes |
+| 3   | **Chunking**                       | Most regexes never see more than 20,000 characters at once                                              |
+| 4   | **Time budget (500 ms)**           | If scanning takes too long, the engine stops and says `complete: false`                                 |
+| 5   | **"Not complete → not sent"**      | The extension never sends a message it couldn't fully check                                             |
+| 6   | **No regex where it isn't needed** | Private keys are found with plain `indexOf`; custom terms with Aho-Corasick                             |
 
 (An automatic safety test with safe-regex2 was planned for M6, which we skipped. Layers 1–6
 are in place.)
@@ -222,10 +222,10 @@ are in place.)
 
 Many official numbers carry a built-in **check digit**, calculated from the other digits:
 
-| Number      | Check                                                       | A random number passes by chance |
-| ----------- | ----------------------------------------------------------- | -------------------------------- |
+| Number      | Check                                                      | A random number passes by chance |
+| ----------- | ---------------------------------------------------------- | -------------------------------- |
 | Card number | **Luhn**: double every second digit, add up, must end in 0 | about 1 in 10                    |
-| IBAN        | **mod-97**: the whole number divided by 97 must leave 1     | about 1 in 97                    |
+| IBAN        | **mod-97**: the whole number divided by 97 must leave 1    | about 1 in 97                    |
 
 Add the extra rules (a known card prefix, the right IBAN length for the country), and an order
 number or a typo almost never gets flagged. **Fewer false alarms means people trust the warnings.**
@@ -252,22 +252,23 @@ builds one "search machine" from all the terms: a tree of characters (a **trie**
 **failure links** that say where to continue when the next character doesn't fit. Then it reads
 the text **once**, left to right, never stepping back.
 
-| Approach            | Work for 10,000 characters and 5,000 terms                |
-| ------------------- | --------------------------------------------------------- |
-| Search term by term | about 5,000 passes over the text                          |
-| Aho-Corasick        | **1 pass** (plus building the machine once per policy)    |
+| Approach            | Work for 10,000 characters and 5,000 terms             |
+| ------------------- | ------------------------------------------------------ |
+| Search term by term | about 5,000 passes over the text                       |
+| Aho-Corasick        | **1 pass** (plus building the machine once per policy) |
 
 We wrote our own (about 100 lines, `utils/aho-corasick.ts`), because the npm options were
 missing or unmaintained, and we needed exact start/end positions on normalized text.
 
 ### 7. Why we keep an index map
 
-To match "ABC Corp" in "abc   CORP" or "ABC⏎Corp", we first **normalize** the text:
+To match "ABC Corp" in "abc CORP" or "ABC⏎Corp", we first **normalize** the text:
+
 - lowercase it;
 - apply Unicode NFKC, so full-width `ＡＢＣ` and the ligature `ﬁ` become normal letters;
 - turn every whitespace run into one space.
 
-But normalizing **changes positions**, and we must replace the *original* characters. So
+But normalizing **changes positions**, and we must replace the _original_ characters. So
 `normalizeForMatching` also builds an **index map**: for every normalized character, where it
 came from in the original text.
 
@@ -283,11 +284,11 @@ So a match on normalized positions 0–8 maps back to original positions 0–10:
 Some "keys" are **meant** to be shared. Redacting them would only add noise and teach people to
 ignore warnings.
 
-| Key                              | Why it's public                                                  |
-| -------------------------------- | ---------------------------------------------------------------- |
-| Stripe `pk_live_…` / `pk_test_…` | Goes into web pages by design; Stripe: "safe to expose"          |
-| Supabase `sb_publishable_…`      | Supabase: "safe to expose online"; protected by database rules   |
-| Twilio Account SID `AC…`         | An account **identifier** (like a username), not a password      |
+| Key                              | Why it's public                                                |
+| -------------------------------- | -------------------------------------------------------------- |
+| Stripe `pk_live_…` / `pk_test_…` | Goes into web pages by design; Stripe: "safe to expose"        |
+| Supabase `sb_publishable_…`      | Supabase: "safe to expose online"; protected by database rules |
+| Twilio Account SID `AC…`         | An account **identifier** (like a username), not a password    |
 
 Their secret siblings (`sk_live_…`, `sb_secret_…`, Twilio auth tokens) **are** detected.
 
@@ -324,20 +325,144 @@ contains an email). Only one can be replaced, so the winner is chosen by these r
 **Pure** means the engine only takes text + policy and returns findings. It never touches the
 page, the browser, the network, storage or the console.
 
-| Benefit           | Explanation                                                                    |
-| ----------------- | ------------------------------------------------------------------------------ |
-| **Can't leak**    | No network, no storage, no logging, so detected values can't escape from it    |
-| **Runs anywhere** | Same code in the content script, the Playground, and later a server            |
-| **Easy to test**  | Same input → same output                                                       |
-| **Enforced twice**| ESLint blocks `window`, `fetch`, `console`…; TypeScript has no DOM types there |
+| Benefit            | Explanation                                                                    |
+| ------------------ | ------------------------------------------------------------------------------ |
+| **Can't leak**     | No network, no storage, no logging, so detected values can't escape from it    |
+| **Runs anywhere**  | Same code in the content script, the Playground, and later a server            |
+| **Easy to test**   | Same input → same output                                                       |
+| **Enforced twice** | ESLint blocks `window`, `fetch`, `console`…; TypeScript has no DOM types there |
 
 ### 12. Smaller lessons
 
-| Lesson                                                                                                   | Where                         |
-| -------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Some findings are longer than the chunk overlap (PEM keys, long JWTs), so those detectors scan the whole text | `private-key.ts`, `jwt.ts`    |
-| The time budget must start **after** one-time preparation, or big policies get wrongly refused           | `engine.ts`                   |
-| Brand-new npm releases can be blocked by pnpm's supply-chain rule, so use a version a few days old        | `DECISIONS.md`                |
-| Provider key formats change, so every pattern links to its official source                               | `api-key-patterns.ts`         |
+| Lesson                                                                                                         | Where                         |
+| -------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Some findings are longer than the chunk overlap (PEM keys, long JWTs), so those detectors scan the whole text  | `private-key.ts`, `jwt.ts`    |
+| The time budget must start **after** one-time preparation, or big policies get wrongly refused                 | `engine.ts`                   |
+| Brand-new npm releases can be blocked by pnpm's supply-chain rule, so use a version a few days old             | `DECISIONS.md`                |
+| Provider key formats change, so every pattern links to its official source                                     | `api-key-patterns.ts`         |
 | Test values must be fake and **assembled at runtime**, so GitHub push protection never sees a real-looking key | `tests/fixtures/fake-data.ts` |
-| Adding the engine grew the content script from 330 kB to 580 kB (mostly the phone library)              | `phase-2-plan.md`             |
+| Adding the engine grew the content script from 330 kB to 580 kB (mostly the phone library)                     | `phase-2-plan.md`             |
+
+## Phase 3 — what I learned
+
+### 1. The whole flow in one picture
+
+```
+Enter ─▶ interceptor blocks it ─▶ scan (detect)
+           │
+           ├─ nothing found ───────────────▶ send as typed            (sent_clean)
+           └─ findings / blocked / too long ▶ load placeholder memory ─▶ REVIEW PANEL
+                                                 │
+              Cancel / Esc / Edit message ◀──────┤                     (cancelled)
+                                                 ▼
+              Protect and Send ─▶ re-scan ─▶ box unchanged? ─▶ placeholders ─▶ write + read back
+                                 ─▶ save memory ─▶ send ─▶ re-key a new chat ─▶ badge + log
+```
+
+Every arrow that can fail ends in **"not sent"**, never in "sent anyway".
+
+### 2. Shadow DOM: our own little page inside ChatGPT's page
+
+A **Shadow DOM** is a separate, sealed-off piece of the page: ChatGPT's CSS can't reach in, and
+ours can't leak out. The badge and the review panel each live in one.
+
+| Surprise                                                                 | What we did                                                                                             |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Fonts declared **inside** a shadow root don't load in Chrome             | Register them on the page's document with the **FontFace API**; shadow roots can use them               |
+| Tailwind's `@property` starting values are ignored inside it             | `ui.css` sets those variables (border, shadow, translate, scale…) ourselves                             |
+| Key presses inside our panel would still reach ChatGPT                   | WXT's `isolateEvents: true` stops them at the shadow root                                               |
+| `document.getSelection()` can't see text selected inside the shadow root | Read `shadowRoot.getSelection()`, then turn it into message positions with `data-offset` on every piece |
+| `rem` follows the page's font size                                       | All our sizes are `px`                                                                                  |
+
+### 3. Stable placeholders
+
+The AI should see the same stand-in for the same value, so that its answers still make sense:
+`ali@example.com` is `[EMAIL_1]` in every message of that chat.
+
+| Rule                                                    | Why                                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| One counter per label per conversation (`EMAIL: 2`)     | Readable numbers that never repeat inside a chat                         |
+| "Same value" = email lowercase, custom terms normalized | `Sara@` and `sara@` are the same person; `Apollo` and `apollo` too       |
+| Skip numbers already typed in the message               | If you wrote `[EMAIL_1]` yourself, ours becomes `[EMAIL_2]`: no mix-ups  |
+| Replace from the **end** of the text backwards          | Earlier positions don't move while we replace                            |
+| Hint line once per conversation                         | Asks the AI to keep placeholders intact, without repeating it every time |
+| Save the memory **before** sending                      | The box already shows the placeholders, even if you must press Send      |
+
+### 4. Where real values live (and where they never go)
+
+| Place                                    | Real values? | Why                                                                       |
+| ---------------------------------------- | ------------ | ------------------------------------------------------------------------- |
+| The review panel's React state           | While open   | You need to see them; unmounting the panel removes them                   |
+| Service worker, `chrome.storage.session` | Yes          | Memory only, wiped when the browser closes, content scripts can't read it |
+| `chrome.storage.local`                   | **Never**    | Written to disk, survives restarts                                        |
+| The page's localStorage / IndexedDB      | **Never**    | ChatGPT's own code could read it                                          |
+| Console logs (even dev)                  | **Never**    | Logs get copied into bug reports and screenshots                          |
+| Popup, LOG_INTERCEPT                     | **Never**    | Counts, categories, action and timing only                                |
+
+### 5. Trust what the browser says, not what the message says
+
+Anyone can write `{ source: 'content-script' }` into a message. Only **Chrome** fills in the
+`sender` object, so the service worker checks that instead:
+
+| Check                                   | Stops                                        |
+| --------------------------------------- | -------------------------------------------- |
+| `sender.id` is our extension            | Other extensions                             |
+| Origin is exactly `https://chatgpt.com` | Our content script on any other site (later) |
+| It's in a tab, in the **top frame**     | Hidden iframes                               |
+| `chatgpt:<id>` must match the tab's URL | One chat reading another chat's memory       |
+| New-chat keys belong to the first tab   | Another tab guessing a new chat's random key |
+| Popup-only messages need our own page   | Web pages clearing or counting your memory   |
+
+Refusals say only "Not allowed" (dev builds add which check). Payloads are never logged.
+
+### 6. Single-page apps change the URL without reloading
+
+ChatGPT never reloads when you switch chats; it changes the URL with JavaScript. WXT's
+`wxt:locationchange` event tells us. A brand-new chat has no id until after the first message,
+so its memory starts under a random `chatgpt:new:<uuid>` key and is **re-keyed** to
+`chatgpt:<id>` as soon as ChatGPT shows the real id. That works whichever comes first: the save
+or the URL change.
+
+### 7. Defence in depth: check again right before acting
+
+The panel already disables sending while blocked items remain. The send flow still checks
+again before anything leaves:
+
+- it scans the final text once more;
+- it confirms ChatGPT's box still holds the message you reviewed;
+- it reloads the memory;
+- after writing, it **reads the box back**.
+
+One layer failing must never be enough to leak data.
+
+### 8. Accessibility is part of "works"
+
+| Feature                                 | How                                                            |
+| --------------------------------------- | -------------------------------------------------------------- |
+| Screen readers know it's a dialog       | `role="dialog"`, `aria-modal`, labelled by its title           |
+| Tab can't wander into the dimmed page   | A focus trap cycles through the panel's own buttons            |
+| Changes are announced                   | The summary is a live region (`role="status"`)                 |
+| Checkboxes behave like checkboxes       | A **real** `<input type="checkbox">`, only restyled            |
+| Keyboard shortcuts                      | Esc = Cancel, Ctrl/Cmd+Enter = main button, arrows switch tabs |
+| No motion for people who asked for none | `motion-reduce:` turns animations off                          |
+| The main button says what will happen   | "Protect and Send" / "Send Without Redaction" / "Send"         |
+
+### 9. Semantic colour tokens make dark mode cheap
+
+Components use **role** names (`bg-surface`, `text-fg`, `border-line`, `bg-action`) instead of
+shades (`bg-neutral-0`). Dark mode is then one CSS block that redefines those roles under
+`[data-theme='dark']`. The panel copies ChatGPT's theme into `data-theme` and watches for
+changes, so it switches live.
+
+### 10. Smaller lessons
+
+| Lesson                                                                                                                              | Where                       |
+| ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| A "can't load memory" error after big changes went away after a reload: reload the extension **and** the tab                        | M2 testing                  |
+| Show the error **reason** in dev builds; a generic message hides which check failed                                                 | `router.ts`, `send-flow.ts` |
+| Rows per **value** (not per occurrence): one tick covers every place it appears, and choices survive re-scans                       | `ui/review/model.ts`        |
+| Keep panel logic in a plain file without React: easier to read and to reason about                                                  | `ui/review/model.ts`        |
+| React 19 passes `ref` as a normal prop; `forwardRef` isn't needed                                                                   | `components/Button.tsx`     |
+| Resetting state when a prop changes can be done during render, without an effect                                                    | `MessagePreview.tsx`        |
+| Public files used by a content script must be in `web_accessible_resources`; restrict them to the one site that needs them          | `wxt.config.ts`             |
+| A helper that _could_ log prompt text (`devLogText`) was deleted once nothing used it: rules are safest when the code enforces them | `lib/logger.ts`             |

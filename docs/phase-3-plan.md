@@ -5,7 +5,7 @@
 
 # SafeAI — Phase 3 Plan
 
-> Status: **Approved** (2026-11-20, answers recorded in section 10). Work in progress.
+> Status: **Built** (M1–M5, 2026-11-20). Waiting for your final checks (`docs/phase-3-notes.md`).
 > Last updated: 2026-11-20
 
 ---
@@ -313,7 +313,7 @@ only changes on Protect and Send; **Cancel leaves the original text** (see quest
 
 1. Real values travel **only** between the content script and our own service worker, for the
    mapping store. They are **never** sent to any server, **never** logged (not even in dev; the
-   Phase 1 `devLogText` is no longer called with real values), **never** written to
+   Phase 1 `devLogText` was deleted in M5), **never** written to
    `chrome.storage.local`, and **never** put in the page's localStorage/sessionStorage/IndexedDB.
 2. `chrome.storage.session` is memory-only, wiped when the browser closes, and **not readable by
    content scripts by default**. Only the service worker reads it.
@@ -560,3 +560,16 @@ review of that flow, plus these fixes:
    - re-key a new chat;
    - badge;
    - log: `protected` / `sent_unredacted` / `sent_clean` / `write_failed`.
+
+### M5 — Polish and docs
+
+- **Logging:** Phase 1's `devLogText` (the one helper allowed to print prompt text in dev) is
+  **deleted**. Nothing can log prompt text any more, even by accident. Every remaining
+  `devLog` call was checked and carries metadata only: types, counts, error reasons, check
+  results. `devLog` is removed from production builds.
+- **Docs:** `LEARNING.md` has a "Phase 3 — what I learned" section, `DECISIONS.md` the M5 row,
+  and `docs/phase-3-notes.md` the testing template with the 6 questions from section 9 plus the
+  main checks.
+- **Final checks:** run by you (see the notes file): typecheck, lint, format:check, tests, the
+  production build, and confirming the build has no Playground, no dev override and no
+  `[SafeAI]` log lines.

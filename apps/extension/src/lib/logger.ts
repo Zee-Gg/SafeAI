@@ -1,22 +1,13 @@
 /*
   Dev-only logging. In production builds `import.meta.env.DEV` is replaced with `false` at build
-  time, so the code inside these functions is deleted and nothing is ever printed.
-  PRIVACY: devLogText is the ONLY place allowed to print prompt text — and only in dev builds.
+  time, so the code inside this function is deleted and nothing is ever printed.
+  PRIVACY (Phase 3): prompt text and real values are NEVER logged, not even in dev. Phase 1's
+  devLogText (which printed prompt text in dev) was removed so it can't be used by accident.
 */
 
-/** Logs to the console in dev builds only. Never pass prompt text here — use devLogText. */
+/** Logs to the console in dev builds only. Metadata only: never prompt text or values. */
 export function devLog(...args: unknown[]): void {
   if (import.meta.env.DEV) {
     console.log('[SafeAI]', ...args);
-  }
-}
-
-/**
- * Prints prompt text in dev builds only (for debugging the replace flow).
- * NEVER call this from a production-only code path, and never use console.log for text directly.
- */
-export function devLogText(label: string, text: string): void {
-  if (import.meta.env.DEV) {
-    console.log(`[SafeAI][text] ${label}:`, JSON.stringify(text));
   }
 }
