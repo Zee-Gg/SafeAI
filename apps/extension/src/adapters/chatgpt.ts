@@ -65,6 +65,8 @@ export const chatgptAdapter: SiteAdapter = {
 
   getMessages: () => [...document.querySelectorAll<HTMLElement>(MESSAGE_SELECTOR)],
 
+  isReply: (message) => message.getAttribute('data-message-author-role') === 'assistant',
+
   readText: (composer) => {
     if (composer instanceof HTMLTextAreaElement) return composer.value;
     // innerText (not textContent) keeps the line breaks between ProseMirror paragraphs.

@@ -5,7 +5,8 @@
   the send flow (src/content/send-flow.ts), which opens the review panel when a message has
   findings. Protection is ON by default; OFF = "Paused" (observe only).
   Phase 4: the restorer shows real values in place of placeholders in this chat's messages (on
-  screen only), using this chat's placeholder memory from the service worker.
+  screen only), using this chat's placeholder memory from the service worker; replies with
+  restored values get a "Copy with real values" button, and the badge says "Restored N items".
 */
 import '../../src/styles/ui.css';
 
@@ -21,6 +22,7 @@ import { browser } from 'wxt/browser';
 import { chatgptAdapter } from '../../src/adapters/chatgpt';
 import type { SiteAdapter } from '../../src/adapters/types';
 import { createConversationTracker } from '../../src/content/conversation';
+import { startReplyExtras } from '../../src/content/restore/reply-extras';
 import { createRestorer } from '../../src/content/restore/restorer';
 import {
   startInterceptor,
@@ -93,6 +95,8 @@ export default defineContentScript({
 
     // 5. On-screen restoring (Phase 4): real values in place of placeholders, this chat only.
     const restorer = createRestorer(adapter);
+    // "Copy with real values" under replies with restored values, and "Restored N items".
+    const stopReplyExtras = startReplyExtras(adapter, restorer, badge);
     let loadToken = 0;
     const loadChatMemory = async (key: ConversationKey) => {
       const token = ++loadToken;
@@ -146,6 +150,7 @@ export default defineContentScript({
     // 9. Clean up if the extension is reloaded or updated (this copy of the script goes stale).
     ctx.onInvalidated(() => {
       stopInterceptor();
+      stopReplyExtras();
       restorer.stop(); // puts ChatGPT's text back and forgets the values
       browser.runtime.onMessage.removeListener(onMessage);
       unwatchSettings();

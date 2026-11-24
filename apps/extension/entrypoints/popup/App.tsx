@@ -1,7 +1,8 @@
 /*
-  The popup screen: Protection switch (On / Paused), status, last activity, and — in dev builds
-  only — dev tools (override warning, placeholder-memory count, clear memory), the service-worker
-  lab and the Playground link. Every colour, radius and shadow comes from the design tokens.
+  The popup screen: Protection switch (On / Paused), status, last activity, placeholder memory
+  (retention in plain words, remembered-chat count, unreadable notice, Clear with confirmation),
+  and — in dev builds only — dev tools (override warning), the service-worker lab and the
+  Playground link. Every colour, radius and shadow comes from the design tokens.
   Accessibility: real <button>s, visible focus rings, live regions for changing values.
 */
 import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
@@ -9,8 +10,10 @@ import { useEffect, useState, type ReactNode, type SVGProps } from 'react';
 import {
   CATEGORY_GROUP,
   CATEGORY_LABEL,
+  DEFAULT_POLICY,
   getSiteName,
   InterceptRecordSchema,
+  PolicySchema,
   type CategoryGroup,
   type DetectorCategory,
   type InterceptAction,
@@ -25,6 +28,7 @@ import {
   isProtectionEnabled,
   lastInterceptItem,
   settingsItem,
+  vaultStatusItem,
 } from '../../src/lib/storage';
 
 /* ---------- Helpers ---------- */
@@ -113,7 +117,7 @@ function Header() {
       <h1 className="text-md font-semibold tracking-tight text-neutral-900">SafeAI</h1>
       {import.meta.env.DEV && (
         <span className="ml-auto rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 ring-1 ring-primary-200 ring-inset">
-          Phase 3 · Dev
+          Phase 4 · Dev
         </span>
       )}
     </header>
@@ -380,13 +384,40 @@ function LastActivityCard() {
   );
 }
 
+/** The retention the extension uses: DEFAULT_POLICY, or the Playground override in dev builds. */
+function useRetentionDays(): number {
+  const [days, setDays] = useState(DEFAULT_POLICY.mappingRetentionDays);
+  useEffect(() => {
+    const item = devPolicyOverrideItem; // null in production builds
+    if (!import.meta.env.DEV || !item) return;
+    const apply = (value: unknown) => {
+      const parsed = PolicySchema.safeParse(value);
+      setDays(
+        parsed.success ? parsed.data.mappingRetentionDays : DEFAULT_POLICY.mappingRetentionDays,
+      );
+    };
+    void item.getValue().then(apply);
+    return item.watch(apply);
+  }, []);
+  return days;
+}
+
+/** The retention in plain words. */
+function retentionSentence(days: number): string {
+  if (days === 0) return 'Real values are remembered only until you close the browser.';
+  return `Real values are remembered on this device for ${days} ${days === 1 ? 'day' : 'days'}.`;
+}
+
 /**
- * DEV BUILDS ONLY: Playground override warning, placeholder-memory count (a number only, never
- * values) and a button to clear that memory.
+ * Placeholder memory (everyone): how long real values are kept, how many chats are remembered
+ * (a count only, never values), a notice if encrypted memory couldn't be read, and
+ * "Clear placeholder memory" with a confirmation step.
  */
-function DevToolsCard() {
+function MemoryCard() {
+  const days = useRetentionDays();
   const [conversations, setConversations] = useState<number | null>(null);
-  const [overrideActive, setOverrideActive] = useState(false);
+  const [unreadable, setUnreadable] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState('');
 
   async function refreshCount() {
@@ -396,41 +427,107 @@ function DevToolsCard() {
 
   useEffect(() => {
     void refreshCount();
+    void vaultStatusItem.getValue().then((status) => setUnreadable(status.unreadableCount > 0));
+    return vaultStatusItem.watch((status) => setUnreadable(status.unreadableCount > 0));
+  }, []);
+
+  async function clearMemory() {
+    const result = await sendToBackground({ type: 'MAPPING_CLEAR_ALL' });
+    setConfirming(false);
+    setMessage(result.ok ? 'Placeholder memory cleared.' : "Couldn't clear it. Please try again.");
+    await refreshCount();
+  }
+
+  const button =
+    'inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium shadow-sm transition-colors duration-(--duration-fast) ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 motion-reduce:transition-none';
+
+  return (
+    <Card title="Placeholder memory">
+      <p className="text-sm text-neutral-800">{retentionSentence(days)}</p>
+      <p className="mt-0.5 text-xs text-neutral-500">
+        {days === 0
+          ? 'Kept in memory only, never written to disk.'
+          : 'Encrypted, and counted from the last time you use a chat.'}
+      </p>
+      <p className="mt-2 text-sm text-neutral-700" aria-live="polite">
+        Remembered chats:{' '}
+        <strong className="tabular-nums">{conversations === null ? '–' : conversations}</strong>
+      </p>
+
+      {unreadable && (
+        <p
+          role="alert"
+          className="mt-3 rounded-md bg-warning-subtle px-3 py-2 text-xs text-warning"
+        >
+          Some remembered values couldn&apos;t be read, so placeholders are shown as they are and
+          those chats can&apos;t send protected messages. Clear placeholder memory to start fresh.
+        </p>
+      )}
+
+      <div className="mt-3" aria-live="polite">
+        {confirming ? (
+          <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
+            <p className="text-sm text-neutral-800">
+              Forget every remembered value? Placeholders already in your chats will stay as
+              placeholders.
+            </p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className={`${button} border border-neutral-300 bg-neutral-0 text-neutral-800 hover:bg-neutral-50`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void clearMemory()}
+                className={`${button} bg-danger text-neutral-0 hover:opacity-90`}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setMessage('');
+              setConfirming(true);
+            }}
+            className={`${button} border border-neutral-300 bg-neutral-0 text-neutral-800 hover:bg-neutral-50`}
+          >
+            Clear placeholder memory
+          </button>
+        )}
+        {message && <p className="mt-2 text-xs text-neutral-500">{message}</p>}
+      </div>
+    </Card>
+  );
+}
+
+/** DEV BUILDS ONLY: warns when the Playground policy override is active. */
+function DevToolsCard() {
+  const [overrideActive, setOverrideActive] = useState(false);
+
+  useEffect(() => {
     const item = devPolicyOverrideItem;
     if (!item) return;
     void item.getValue().then((value) => setOverrideActive(value !== null));
     return item.watch((value) => setOverrideActive(value !== null));
   }, []);
 
-  async function clearMemory() {
-    const result = await sendToBackground({ type: 'MAPPING_CLEAR_ALL' });
-    setMessage(result.ok ? 'Placeholder memory cleared.' : `Couldn't clear: ${result.error}`);
-    await refreshCount();
-  }
-
-  const clearButton = (
-    <button
-      type="button"
-      onClick={() => void clearMemory()}
-      className="inline-flex items-center rounded-md border border-neutral-300 bg-neutral-0 px-3 py-1.5 text-sm font-medium text-neutral-800 shadow-sm transition-colors duration-(--duration-fast) ease-out hover:bg-neutral-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 motion-reduce:transition-none"
-    >
-      Clear placeholder memory
-    </button>
-  );
-
   return (
-    <Card title="Dev tools" action={clearButton}>
-      {overrideActive && (
-        <p className="mb-2 inline-flex rounded-full bg-warning-subtle px-2 py-0.5 text-xs font-medium text-warning">
-          Dev policy override active
-        </p>
-      )}
-      <p className="text-sm text-neutral-700" aria-live="polite">
-        Placeholder memory:{' '}
-        <strong className="tabular-nums">{conversations === null ? '–' : conversations}</strong>{' '}
-        conversation{conversations === 1 ? '' : 's'}
+    <Card title="Dev tools">
+      <p className="text-sm text-neutral-700">
+        {overrideActive ? (
+          <span className="inline-flex rounded-full bg-warning-subtle px-2 py-0.5 text-xs font-medium text-warning">
+            Dev policy override active
+          </span>
+        ) : (
+          'ChatGPT uses the default policy.'
+        )}
       </p>
-      {message && <p className="mt-1 text-xs text-neutral-500">{message}</p>}
     </Card>
   );
 }
@@ -467,6 +564,7 @@ export function App() {
         <ProtectionToggle />
         <StatusCard />
         <LastActivityCard />
+        <MemoryCard />
         {import.meta.env.DEV && <DevToolsCard />}
         {import.meta.env.DEV && <WorkerLabCard />}
       </main>

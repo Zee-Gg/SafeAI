@@ -220,3 +220,25 @@ Approved as proposed:
     conversation.
   - Unreadable memory → nothing is restored (placeholders stay).
 - **Extension reloaded:** every change is undone and the values are forgotten.
+
+### M4 — Copy, badge and popup
+
+- **"Copy with real values":** a small button right **after** each reply that contains restored
+  values.
+  - It lives in its own closed Shadow DOM, follows ChatGPT's light/dark theme, and appears once
+    the reply has stopped changing.
+  - It copies the reply as plain text (paragraphs, list bullets and numbers, line breaks) with
+    the real values in place.
+  - It shows "Copied" for 2 s, or "Couldn't copy".
+  - It is added and removed as replies change. ChatGPT's own nodes are never moved.
+- **Badge:** "Restored N items" (blue) once the **newest** reply stops changing for 1.5 s.
+  - It appears once per new count.
+  - It is not shown for old replies right after a reload or a chat switch.
+- **Popup:** a **Placeholder memory** card for everyone, showing:
+  - the retention in plain words ("Real values are remembered on this device for 7 days", or
+    "…only until you close the browser" for 0);
+  - "Remembered chats: N";
+  - a warning when encrypted memory couldn't be read;
+  - **Clear placeholder memory** with an inline confirmation.
+
+  Dev tools keeps only the override pill. The header pill says "Phase 4 · Dev".

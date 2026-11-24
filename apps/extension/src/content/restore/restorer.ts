@@ -65,9 +65,37 @@ export interface Restorer {
   addEntries(entries: readonly MappingEntry[]): void;
   /** Undoes every change and stops watching (extension reloaded or updated). */
   stop(): void;
-  /** How many value elements are on screen inside `message` (used by the copy button, M4). */
+  /** How many value elements are on screen inside `message`. */
   countIn(message: Element): number;
+  /** `message` as plain text with the REAL values in place of placeholders (Copy, M4). */
+  textWithValues(message: Element): string;
+  /** Calls `listener` after every batch of on-screen changes. Returns an "unsubscribe". */
+  onUpdate(listener: () => void): () => void;
+  /** When setEntries() last ran (a chat was loaded or switched), in ms since 1970. */
+  lastLoadedAt(): number;
 }
+
+// Elements that start a new line when a reply is turned into plain text.
+const BLOCK_TAGS = new Set([
+  'P',
+  'DIV',
+  'LI',
+  'PRE',
+  'BLOCKQUOTE',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'TR',
+  'TABLE',
+  'UL',
+  'OL',
+  'HR',
+  'SECTION',
+  'ARTICLE',
+]);
 
 /** Starts watching ChatGPT's page and restoring values. */
 export function createRestorer(adapter: SiteAdapter): Restorer {
@@ -75,7 +103,10 @@ export function createRestorer(adapter: SiteAdapter): Restorer {
   const patches = new Map<Text, Patch>();
   const ours = new WeakSet<Node>(); // every node we inserted
   const pending = new Set<Text>();
+  const valueOf = new WeakMap<Element, string>(); // our value element → its real value
+  const listeners = new Set<() => void>();
   let frame = 0;
+  let loadedAt = 0;
 
   /** True if this text node may be restored: inside a message, never in anything editable. */
   function eligible(node: Text): boolean {
@@ -102,6 +133,7 @@ export function createRestorer(adapter: SiteAdapter): Restorer {
     shown.textContent = value;
     shadow.append(shown);
     ours.add(host);
+    valueOf.set(host, value);
     return host;
   }
 
@@ -158,6 +190,44 @@ export function createRestorer(adapter: SiteAdapter): Restorer {
     for (const node of nodes) apply(node);
     // Forget patches whose node ChatGPT has thrown away (their parent went with it).
     for (const node of patches.keys()) if (!node.isConnected) dropPatch(node);
+    if (nodes.length > 0) listeners.forEach((listener) => listener());
+  }
+
+  /** Plain text of `root`, with real values for our elements and line breaks between blocks. */
+  function toPlainText(root: Element): string {
+    const parts: string[] = [];
+    const walk = (node: Node) => {
+      if (node instanceof Text) {
+        parts.push(node.data);
+        return;
+      }
+      if (!(node instanceof Element)) return;
+      const value = valueOf.get(node);
+      if (value !== undefined) {
+        parts.push(value);
+        return;
+      }
+      if (node.tagName === 'BR') {
+        parts.push('\n');
+        return;
+      }
+      if (node.tagName === 'BUTTON' || node.tagName === 'svg') return; // UI, not content
+      const block = BLOCK_TAGS.has(node.tagName);
+      if (block) parts.push('\n');
+      if (node.tagName === 'LI') {
+        const list = node.parentElement;
+        const index = list ? [...list.children].indexOf(node) + 1 : 1;
+        parts.push(list?.tagName === 'OL' ? `${index}. ` : '- ');
+      }
+      node.childNodes.forEach(walk);
+      if (block) parts.push('\n');
+    };
+    walk(root);
+    return parts
+      .join('')
+      .replace(/[ \t]+\n/g, '\n') // no spaces at line ends
+      .replace(/\n{3,}/g, '\n\n') // at most one empty line in a row
+      .trim();
   }
 
   /** Queues every text node inside `root` that could hold a placeholder. */
@@ -208,6 +278,7 @@ export function createRestorer(adapter: SiteAdapter): Restorer {
 
   return {
     setEntries(entries) {
+      loadedAt = Date.now();
       revertAll();
       table = buildRestoreTable(entries);
       rescanAll();
@@ -230,5 +301,11 @@ export function createRestorer(adapter: SiteAdapter): Restorer {
     countIn(message) {
       return message.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length;
     },
+    textWithValues: (message) => toPlainText(message),
+    onUpdate(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    lastLoadedAt: () => loadedAt,
   };
 }

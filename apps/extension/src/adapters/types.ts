@@ -24,6 +24,8 @@ export interface SiteAdapter {
   findMessage(node: Node): HTMLElement | null;
   /** Phase 4: every message element currently on the page, top to bottom. */
   getMessages(): HTMLElement[];
+  /** Phase 4: true if this message element is the AI's reply (not your own message). */
+  isReply(message: Element): boolean;
   /** Health check: which of our selectors currently find something on the page. */
   checkSelectors(): { composer: boolean; sendButton: boolean };
 }
