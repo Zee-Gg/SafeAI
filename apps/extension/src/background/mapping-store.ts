@@ -1,9 +1,12 @@
 /*
   Placeholder memory ("mapping"): which placeholder stands for which real value, per conversation.
-  Lives ONLY in the service worker, in chrome.storage.session: kept in memory, wiped when the
-  browser closes, and not readable by content scripts by default. The MappingStore interface
-  lets Phase 4 swap in an encrypted, longer-lived store without changing any caller.
-  PRIVACY: values are never logged and never written to chrome.storage.local.
+  Lives ONLY in the service worker. Two implementations share one interface:
+  - SessionMappingStore (this file): chrome.storage.session — memory only, wiped when the browser
+    closes. Used when the policy's mappingRetentionDays is 0.
+  - EncryptedMappingStore (vault-store.ts, Phase 4): AES-GCM encrypted IndexedDB records kept for
+    mappingRetentionDays after last use. The default.
+  store-manager.ts picks the active one. PRIVACY: values are never logged and never written to
+  chrome.storage.local.
 */
 import {
   EMPTY_MAPPING,
@@ -29,17 +32,18 @@ export interface MappingStore {
   markHintSent(key: ConversationKey): Promise<void>;
   /** Moves a new chat's memory to its real key (merging if the target already has some). */
   rekey(fromKey: ConversationKey, toKey: ConversationKey): Promise<void>;
+  /** Merges a whole record into a conversation (used when moving data between stores). */
+  importRecord(key: ConversationKey, record: MappingRecord): Promise<void>;
+  /** Every readable conversation, for moving data to the other store. */
+  exportAll(): Promise<{ key: ConversationKey; record: MappingRecord }[]>;
   /** Forgets every conversation. */
   clearAll(): Promise<void>;
   /** How many conversations are remembered (a count only). */
   countConversations(): Promise<number>;
 }
 
-/** Prefix of every mapping key in session storage, e.g. "mapping:chatgpt:abc". */
-const PREFIX = 'mapping:';
-
 /** Merges two records: entries de-duplicated by placeholder, counters take the higher number. */
-function merge(base: MappingRecord, extra: MappingRecord): MappingRecord {
+export function mergeRecords(base: MappingRecord, extra: MappingRecord): MappingRecord {
   const byPlaceholder = new Map(base.entries.map((e) => [e.placeholder, e]));
   for (const entry of extra.entries) {
     if (!byPlaceholder.has(entry.placeholder)) byPlaceholder.set(entry.placeholder, entry);
@@ -55,19 +59,27 @@ function merge(base: MappingRecord, extra: MappingRecord): MappingRecord {
   };
 }
 
-/** The Phase 3 implementation, on chrome.storage.session. */
-export class SessionMappingStore implements MappingStore {
-  /** Per-conversation queue: each write waits for the previous one, so none is lost. */
-  private readonly queues = new Map<string, Promise<unknown>>();
-
-  /** Runs `task` after every earlier task for the same keys has finished. */
-  private enqueue<T>(keys: readonly string[], task: () => Promise<T>): Promise<T> {
-    const previous = Promise.all(keys.map((k) => this.queues.get(k) ?? Promise.resolve()));
+/**
+ * Per-conversation queue: each task waits for earlier tasks on the same keys, so two quick
+ * writes can't overwrite each other.
+ */
+export function createKeyQueue() {
+  const queues = new Map<string, Promise<unknown>>();
+  return function enqueue<T>(keys: readonly string[], task: () => Promise<T>): Promise<T> {
+    const previous = Promise.all(keys.map((k) => queues.get(k) ?? Promise.resolve()));
     const run = previous.then(task, task);
     const settled = run.catch(() => undefined);
-    for (const k of keys) this.queues.set(k, settled);
+    for (const k of keys) queues.set(k, settled);
     return run;
-  }
+  };
+}
+
+/** Prefix of every mapping key in session storage, e.g. "mapping:chatgpt:abc". */
+const PREFIX = 'mapping:';
+
+/** The memory-only store, on chrome.storage.session (retention 0, and Phase 3's store). */
+export class SessionMappingStore implements MappingStore {
+  private readonly enqueue = createKeyQueue();
 
   private async read(key: ConversationKey): Promise<MappingRecord> {
     const raw = await storage.getItem<unknown>(`session:${PREFIX}${key}`);
@@ -88,9 +100,10 @@ export class SessionMappingStore implements MappingStore {
     entries: readonly MappingEntry[],
     counters: Readonly<Record<string, number>>,
   ): Promise<void> {
-    return this.enqueue([key], async () => {
-      const current = await this.read(key);
-      await this.write(key, merge(current, { entries: [...entries], counters: { ...counters }, hintSent: false }));
+    return this.importRecord(key, {
+      entries: [...entries],
+      counters: { ...counters },
+      hintSent: false,
     });
   }
 
@@ -105,9 +118,32 @@ export class SessionMappingStore implements MappingStore {
     return this.enqueue([fromKey, toKey], async () => {
       if (fromKey === toKey) return;
       const [from, to] = await Promise.all([this.read(fromKey), this.read(toKey)]);
-      await this.write(toKey, merge(to, from));
+      await this.write(toKey, mergeRecords(to, from));
       await storage.removeItem(`session:${PREFIX}${fromKey}`);
     });
+  }
+
+  importRecord(key: ConversationKey, record: MappingRecord): Promise<void> {
+    return this.enqueue([key], async () => {
+      const current = await this.read(key);
+      await this.write(key, mergeRecords(current, record));
+    });
+  }
+
+  async exportAll(): Promise<{ key: ConversationKey; record: MappingRecord }[]> {
+    const all = await browser.storage.session.get(null);
+    const result: { key: ConversationKey; record: MappingRecord }[] = [];
+    for (const [storageKey, value] of Object.entries(all)) {
+      if (!storageKey.startsWith(PREFIX)) continue;
+      const parsed = MappingRecordSchema.safeParse(value);
+      if (parsed.success) {
+        result.push({
+          key: storageKey.slice(PREFIX.length) as ConversationKey,
+          record: parsed.data,
+        });
+      }
+    }
+    return result;
   }
 
   async clearAll(): Promise<void> {
@@ -122,6 +158,3 @@ export class SessionMappingStore implements MappingStore {
     return Object.keys(all).filter((k) => k.startsWith(PREFIX)).length;
   }
 }
-
-/** The store the router uses. Phase 4 replaces this line with an encrypted store. */
-export const mappingStore: MappingStore = new SessionMappingStore();

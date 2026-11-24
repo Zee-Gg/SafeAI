@@ -1,8 +1,8 @@
 /*
   WXT settings for the SafeAI extension: name, permissions, React, Tailwind, and the dev browser.
   WXT turns this (plus the files in entrypoints/) into the real manifest.json at build time.
-  Permissions are deliberately minimal: only "storage". The content script's own match pattern
-  (https://chatgpt.com/*) is declared in that entrypoint file.
+  Permissions are deliberately minimal: "storage", plus "alarms" (Phase 4 hourly cleanup).
+  The content script's own match pattern (https://chatgpt.com/*) is declared in that entrypoint.
 */
 import { resolve } from 'node:path';
 
@@ -15,7 +15,8 @@ export default defineConfig({
   manifest: {
     name: 'SafeAI',
     description: 'Protects sensitive data in prompts sent to AI chat tools.',
-    permissions: ['storage'],
+    // "alarms" (Phase 4): the hourly cleanup of expired placeholder memory. Nothing else.
+    permissions: ['storage', 'alarms'],
     // The review panel's fonts (public/fonts). Only chatgpt.com may load them, so no other site
     // can see or probe these files. This is NOT a permission.
     web_accessible_resources: [

@@ -12,6 +12,7 @@ import { detect, type DetectResult } from '@safeai/detection';
 import {
   CATEGORY_LABEL,
   EMPTY_MAPPING,
+  MEMORY_UNREADABLE_ERROR,
   type ConversationKey,
   type InterceptRecord,
   type Policy,
@@ -290,6 +291,10 @@ const EMPTY_LOADED = {
 
 /** The badge text when placeholder memory is unavailable (dev builds add the reason). */
 function memoryError(reason: string): string {
+  // Phase 4: encrypted memory that can't be decrypted. Never guess placeholders: don't send.
+  if (reason === MEMORY_UNREADABLE_ERROR) {
+    return "Placeholder memory can't be read — not sent. Open SafeAI's popup";
+  }
   const detail = import.meta.env.DEV ? ` (dev: ${reason})` : '';
   return `Couldn't load placeholder memory — not sent${detail}`;
 }

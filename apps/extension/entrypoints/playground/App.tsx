@@ -37,6 +37,8 @@ interface Settings {
   actions: Actions;
   /** Phase 3: turn off "allowUserOverride", so redact rows show as locked in the review panel. */
   lockRedact: boolean;
+  /** Phase 4: days placeholder memory is kept after a chat was last used (0 = memory only). */
+  retentionDays: number;
 }
 
 const RULE_ACTIONS: readonly RuleAction[] = ['redact', 'block', 'warn', 'allow'];
@@ -53,6 +55,7 @@ function defaultSettings(): Settings {
     customTermsText: '',
     actions,
     lockRedact: false,
+    retentionDays: DEFAULT_POLICY.mappingRetentionDays,
   };
 }
 
@@ -342,6 +345,23 @@ function SettingsPanel({
         />
         Lock “redact” items (users can’t untick them in ChatGPT’s review panel)
       </label>
+
+      <label className="mt-3 flex items-center gap-2 text-xs text-neutral-600">
+        Keep placeholder memory for
+        <input
+          type="number"
+          min={0}
+          max={30}
+          step={1}
+          value={settings.retentionDays}
+          onChange={(event) => {
+            const days = Math.round(Number(event.target.value));
+            if (Number.isFinite(days)) set({ retentionDays: Math.min(30, Math.max(0, days)) });
+          }}
+          className={`${FIELD} w-16 py-1 text-xs`}
+        />
+        days after last use (0 = until the browser closes)
+      </label>
     </Panel>
   );
 }
@@ -583,10 +603,12 @@ export function App() {
       nationalIdCountries: settings.idCountries,
       defaultPhoneCountry: settings.phoneCountry,
       placeholderHint: DEFAULT_POLICY.placeholderHint,
+      mappingRetentionDays: settings.retentionDays,
     }),
     [
       settings.actions,
       settings.lockRedact,
+      settings.retentionDays,
       settings.idCountries,
       settings.phoneCountry,
       parsedTerms.terms,

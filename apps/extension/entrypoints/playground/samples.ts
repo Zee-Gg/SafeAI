@@ -9,7 +9,9 @@
 /** Deterministic made-up characters (never a real key). */
 function fakeChars(length: number, step = 7): string {
   const alphabet = 'aZ3kQ9mW2xR7tY4pL8vB5nC6hJ1dF0gSeUiOoAbcDEfGHIjKlMNPqrsTuVwXyz';
-  return Array.from({ length }, (_, i) => alphabet.charAt((i * step + 3) % alphabet.length)).join('');
+  return Array.from({ length }, (_, i) => alphabet.charAt((i * step + 3) % alphabet.length)).join(
+    '',
+  );
 }
 
 const base64url = (text: string) =>

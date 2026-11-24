@@ -156,3 +156,15 @@
 | **ChatGPT's box must still hold the reviewed message before writing**                                                                                  | If it changed while the panel was open, nothing is sent                                                                                         |
 | **Popup shows `write_failed` as "Not sent (error)"**                                                                                                   | One honest label for every case where SafeAI stopped a message for safety                                                                       |
 | **`devLogText` deleted**                                                                                                                               | Nothing is allowed to log prompt text any more, so the helper that could is gone                                                                |
+
+## Phase 4 decisions (encrypted memory and restored values)
+
+| Decision                                                                                                        | Reason                                                                                               |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Vault = the extension's own IndexedDB, service worker only**                                                  | Pages and content scripts can't open it; survives restarts                                           |
+| **AES-GCM, non-extractable key in the same IndexedDB, fresh IV per write, conversation key as additional data** | Records unreadable outside this browser profile; no password; records can't be swapped between chats |
+| **Retention from last use; default 7, 0–30; 0 = Phase 3 memory-only store**                                     | Active chats keep working; your answer 3                                                             |
+| **Worker reads the retention from the policy itself**                                                           | Never trusts a retention value sent in a message                                                     |
+| **Maintenance moves data into the active store, then empties the other**                                        | One mechanism for the Phase 3 migration and for switching retention                                  |
+| **Unreadable record → never overwritten, message not sent, popup notice**                                       | Showing or reusing a wrong placeholder is worse than stopping                                        |
+| **Only new permission: `alarms`**                                                                               | Hourly cleanup                                                                                       |

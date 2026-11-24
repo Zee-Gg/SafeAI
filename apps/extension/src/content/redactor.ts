@@ -64,7 +64,8 @@ export function planPlaceholders(
 ): PlaceholderPlan {
   const counters: PlaceholderCounters = { ...mapping.counters };
   const known = new Map<string, string>();
-  for (const entry of mapping.entries) known.set(matchKey(entry.category, entry.value), entry.placeholder);
+  for (const entry of mapping.entries)
+    known.set(matchKey(entry.category, entry.value), entry.placeholder);
 
   const sorted = [...items]
     .filter((item) => item.start >= 0 && item.end <= text.length && item.end > item.start)

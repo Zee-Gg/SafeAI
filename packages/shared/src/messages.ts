@@ -194,6 +194,12 @@ export const MappingStatsReplySchema = z.strictObject({ conversations: Count });
 /** Reply to CONTENT_PING. */
 export const ContentPingReplySchema = z.strictObject({ site: SiteIdSchema });
 
+/**
+ * Phase 4: the error text when encrypted placeholder memory can't be decrypted. The content
+ * script recognises it (and doesn't send the message); it never carries any details.
+ */
+export const MEMORY_UNREADABLE_ERROR = 'Placeholder memory unreadable';
+
 /** Reply sent when a message is invalid, not allowed, or something went wrong. */
 export const ErrorReplySchema = z.strictObject({ ok: z.literal(false), error: z.string() });
 export type ErrorReply = z.infer<typeof ErrorReplySchema>;

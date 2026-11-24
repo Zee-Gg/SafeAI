@@ -51,6 +51,11 @@ export const PolicySchema = z.strictObject({
    * protected message of each conversation, so the AI keeps placeholders intact.
    */
   placeholderHint: z.boolean(),
+  /**
+   * Phase 4: how many days placeholder memory is kept on this device after a conversation was
+   * last used (encrypted). 0 = memory only, wiped when the browser closes. Allowed 0–30.
+   */
+  mappingRetentionDays: z.number().int().min(0).max(30),
 });
 export type Policy = z.infer<typeof PolicySchema>;
 
@@ -84,4 +89,5 @@ export const DEFAULT_POLICY: Policy = {
   nationalIdCountries: ['PK', 'US', 'UK', 'AE'],
   defaultPhoneCountry: 'PK',
   placeholderHint: true,
+  mappingRetentionDays: 7,
 };

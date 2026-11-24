@@ -7,6 +7,7 @@
 import {
   BackgroundRequestSchema,
   InterceptRecordSchema,
+  MEMORY_UNREADABLE_ERROR,
   type BackgroundRequest,
   type ErrorReply,
   type GetStatusReply,
@@ -20,7 +21,8 @@ import { browser, type Browser } from 'wxt/browser';
 import { devLog } from '../lib/logger';
 import { lastInterceptItem } from '../lib/storage';
 import { bumpCounters, workerStartedAt } from './lifecycle-lab';
-import { mappingStore } from './mapping-store';
+import { activeStore, clearAllMemory, countAllConversations } from './store-manager';
+import { VaultReadError } from './vault-db';
 import {
   clearNewKeyOwners,
   isChatGptContentScript,
@@ -31,12 +33,7 @@ import {
 
 /** Every reply the router can send. */
 export type BackgroundReply =
-  | PingReply
-  | GetStatusReply
-  | OkReply
-  | MappingGetReply
-  | MappingStatsReply
-  | ErrorReply;
+  PingReply | GetStatusReply | OkReply | MappingGetReply | MappingStatsReply | ErrorReply;
 
 // Refusals say just "Not allowed". Dev builds add which check refused it (still no values).
 const WRONG_CONVERSATION: ErrorReply = {
@@ -52,7 +49,10 @@ const WRONG_SENDER: ErrorReply = {
  * Who may send each message type. Messages with real values: only the ChatGPT content script.
  * Popup-only tools: only our own extension pages. Everything else: any part of our extension.
  */
-function isSenderAllowed(type: BackgroundRequest['type'], sender: Browser.runtime.MessageSender): boolean {
+function isSenderAllowed(
+  type: BackgroundRequest['type'],
+  sender: Browser.runtime.MessageSender,
+): boolean {
   switch (type) {
     case 'MAPPING_GET':
     case 'MAPPING_SAVE':
@@ -114,16 +114,16 @@ export async function handleMessage(
       // ---- Placeholder memory: values inside, so nothing below is ever logged. ----
       case 'MAPPING_GET': {
         if (!(await mayUseConversation(sender, request.key))) return WRONG_CONVERSATION;
-        return { mapping: await mappingStore.getMapping(request.key) };
+        return { mapping: await (await activeStore()).getMapping(request.key) };
       }
       case 'MAPPING_SAVE': {
         if (!(await mayUseConversation(sender, request.key))) return WRONG_CONVERSATION;
-        await mappingStore.saveEntries(request.key, request.entries, request.counters);
+        await (await activeStore()).saveEntries(request.key, request.entries, request.counters);
         return { ok: true };
       }
       case 'MAPPING_MARK_HINT': {
         if (!(await mayUseConversation(sender, request.key))) return WRONG_CONVERSATION;
-        await mappingStore.markHintSent(request.key);
+        await (await activeStore()).markHintSent(request.key);
         return { ok: true };
       }
       case 'MAPPING_REKEY': {
@@ -135,20 +135,23 @@ export async function handleMessage(
           (await mayUseConversation(sender, request.fromKey)) &&
           (await mayUseConversation(sender, request.toKey));
         if (!allowed) return WRONG_CONVERSATION;
-        await mappingStore.rekey(request.fromKey, request.toKey);
+        await (await activeStore()).rekey(request.fromKey, request.toKey);
         await releaseNewKey(request.fromKey);
         return { ok: true };
       }
       case 'MAPPING_CLEAR_ALL': {
-        await mappingStore.clearAll();
+        await clearAllMemory(); // both stores + the unreadable-memory notice
         await clearNewKeyOwners();
         return { ok: true };
       }
       case 'MAPPING_STATS': {
-        return { conversations: await mappingStore.countConversations() };
+        return { conversations: await countAllConversations() };
       }
     }
   } catch (error) {
+    // Encrypted memory that can't be decrypted: say so (no details), so the message isn't sent
+    // with guessed placeholders and the user can be pointed to the popup.
+    if (error instanceof VaultReadError) return { ok: false, error: MEMORY_UNREADABLE_ERROR };
     // Generic message only: errors here could otherwise echo values. Dev: the error's NAME only.
     const name = error instanceof Error ? error.name : typeof error;
     devLog('Handler failed for', request.type, '— error type:', name);
