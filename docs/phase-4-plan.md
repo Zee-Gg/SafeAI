@@ -191,3 +191,32 @@ Approved as proposed:
 - **Clear placeholder memory** empties both stores and resets the notice. It is still in the
   dev tools card; it moves to everyone in M4.
 - **Permissions:** `storage`, `alarms`.
+
+### M3 — Real values on screen
+
+- **Adapter:** ChatGPT's message elements (`[data-message-author-role]`: your messages and
+  replies) are found through the adapter, like every other ChatGPT selector.
+- **Matcher** (pure): one pattern finds `[LABEL_n]` and the approved variations. A match counts
+  only if its label **and** number belong to a placeholder this chat really has. Numbers are
+  read whole (`[EMAIL_10]` is never `[EMAIL_1]`). While text streams in, forms that may still
+  be growing are skipped: `[EMAIL_1` without `]`, or a bare `EMAIL_1` at the very end of the
+  text.
+- **Restorer:**
+  - Watches the page (one MutationObserver, batched once per animation frame).
+  - In ChatGPT's own text node it only **shortens** the text, then inserts our nodes after it.
+  - When ChatGPT rewrites or removes that node (streaming, redraws), our nodes are removed and
+    the work is redone.
+  - Each value is a `span[data-safeai-restored]` whose **closed** shadow root shows the value
+    (dotted underline, tooltip "Restored on your device by SafeAI"). Its hidden light-DOM text
+    is the placeholder, so ChatGPT's scripts only ever read placeholders.
+  - It skips the input box, any `contenteditable`, `textarea`, `input` and `role="textbox"`,
+    and anything outside a message.
+- **Which values:**
+  - The current chat's memory is loaded at start-up and on every chat switch; stale answers
+    after quick switches are ignored.
+  - Placeholders saved by a send are added at once, so your own message is restored straight
+    away.
+  - When a new chat gets its real id, the values on screen are kept: it's the same
+    conversation.
+  - Unreadable memory → nothing is restored (placeholders stay).
+- **Extension reloaded:** every change is undone and the values are forgotten.

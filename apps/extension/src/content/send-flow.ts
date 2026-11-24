@@ -15,6 +15,7 @@ import {
   MEMORY_UNREADABLE_ERROR,
   type ConversationKey,
   type InterceptRecord,
+  type MappingEntry,
   type Policy,
 } from '@safeai/shared';
 import type { ContentScriptContext } from '#imports';
@@ -43,10 +44,18 @@ export interface SendFlowDeps {
   adapter: SiteAdapter;
   badge: BadgeStore;
   conversation: ConversationTracker;
+  /** Phase 4: called with this chat's placeholders once they are saved (for on-screen restoring). */
+  onPlaceholdersSaved: (entries: MappingEntry[]) => void;
 }
 
 /** Builds the send flow. Call handleAttempt() for every send the interceptor catches. */
-export function createSendFlow({ ctx, adapter, badge, conversation }: SendFlowDeps) {
+export function createSendFlow({
+  ctx,
+  adapter,
+  badge,
+  conversation,
+  onPlaceholdersSaved,
+}: SendFlowDeps) {
   let busy = false; // true while a message is being reviewed or protected
 
   /** Paused: ChatGPT sends normally; we only record metadata (counts, never values). */
@@ -193,6 +202,7 @@ export function createSendFlow({ ctx, adapter, badge, conversation }: SendFlowDe
     // Remember the new placeholders BEFORE sending: the box already shows them, so even if the
     // automatic send fails and you press Send yourself, the memory stays consistent.
     await saveMapping(key, redaction);
+    onPlaceholdersSaved([...loaded.data.mapping.entries, ...redaction.newEntries]);
 
     const sent = await resend(composer);
     if (sent) {

@@ -38,10 +38,18 @@ export interface ConversationTracker {
   afterSave(savedKey: ConversationKey): void;
 }
 
+/**
+ * Details of a conversation change. `rekeyedFrom` is set when this is the SAME conversation
+ * getting its real id (a new chat after its first send), not a switch to another chat.
+ */
+export interface ConversationChange {
+  rekeyedFrom: ConversationKey | null;
+}
+
 /** Starts tracking (listens to WXT's location-change event until the script is invalidated). */
 export function createConversationTracker(
   ctx: ContentScriptContext,
-  onChange?: (key: ConversationKey) => void,
+  onChange?: (key: ConversationKey, change: ConversationChange) => void,
 ): ConversationTracker {
   const keyForUrl = (url: string): ConversationKey => {
     const id = conversationIdFromUrl(url);
@@ -59,10 +67,13 @@ export function createConversationTracker(
 
   ctx.addEventListener(window, 'wxt:locationchange', ({ newUrl }) => {
     const id = conversationIdFromUrl(newUrl.href);
+    let rekeyedFrom: ConversationKey | null = null;
     if (id) {
       const realKey: ConversationKey = `chatgpt:${id}`;
+      if (realKey === key) return; // same chat (e.g. only the query string changed)
       if (pendingRekeyFrom) {
         rekey(pendingRekeyFrom, realKey);
+        rekeyedFrom = pendingRekeyFrom;
         pendingRekeyFrom = null;
       }
       key = realKey;
@@ -71,7 +82,7 @@ export function createConversationTracker(
       key = newChatKey();
       pendingRekeyFrom = null;
     }
-    onChange?.(key);
+    onChange?.(key, { rekeyedFrom });
   });
 
   return {
@@ -83,6 +94,7 @@ export function createConversationTracker(
         // ChatGPT already gave the chat its id before our save finished: re-key right away.
         rekey(savedKey, `chatgpt:${id}`);
         key = `chatgpt:${id}`;
+        onChange?.(key, { rekeyedFrom: savedKey });
       } else {
         pendingRekeyFrom = savedKey; // re-key when the URL changes
       }

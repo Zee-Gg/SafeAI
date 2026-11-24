@@ -18,6 +18,12 @@ export interface SiteAdapter {
   isSendButton(el: Element): boolean;
   /** Gets the plain text currently typed in the input box. */
   readText(composer: HTMLElement): string;
+  /** Phase 4: CSS selector for one message on screen (a sent message or a reply). */
+  messageSelector: string;
+  /** Phase 4: the message element (sent message or reply) that contains `node`, or null. */
+  findMessage(node: Node): HTMLElement | null;
+  /** Phase 4: every message element currently on the page, top to bottom. */
+  getMessages(): HTMLElement[];
   /** Health check: which of our selectors currently find something on the page. */
   checkSelectors(): { composer: boolean; sendButton: boolean };
 }

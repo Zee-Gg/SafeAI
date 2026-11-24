@@ -23,10 +23,16 @@ export const SELECTORS = {
     'button[aria-label="Send prompt"]',
     'form button[type="submit"]',
   ],
+  /**
+   * Phase 4: one message in the conversation. ChatGPT marks each one with its author
+   * ("user" = your sent message, "assistant" = a reply).
+   */
+  message: ['[data-message-author-role]'],
 } as const;
 
 const COMPOSER_SELECTOR = SELECTORS.composer.join(', ');
 const SEND_BUTTON_SELECTOR = SELECTORS.sendButton.join(', ');
+const MESSAGE_SELECTOR = SELECTORS.message.join(', ');
 
 /** Returns the first element matching any selector in the list (tried in order). */
 function findFirst(selectors: readonly string[]): HTMLElement | null {
@@ -49,6 +55,15 @@ export const chatgptAdapter: SiteAdapter = {
 
   // closest() also matches when the click lands on the arrow icon INSIDE the button.
   isSendButton: (el) => el.closest(SEND_BUTTON_SELECTOR) !== null,
+
+  messageSelector: MESSAGE_SELECTOR,
+
+  findMessage: (node) => {
+    const element = node instanceof Element ? node : node.parentElement;
+    return element?.closest<HTMLElement>(MESSAGE_SELECTOR) ?? null;
+  },
+
+  getMessages: () => [...document.querySelectorAll<HTMLElement>(MESSAGE_SELECTOR)],
 
   readText: (composer) => {
     if (composer instanceof HTMLTextAreaElement) return composer.value;

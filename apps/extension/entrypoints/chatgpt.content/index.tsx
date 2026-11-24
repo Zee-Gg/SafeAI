@@ -4,10 +4,16 @@
   the fonts, the status badge, the active policy, conversation tracking, the send interceptor and
   the send flow (src/content/send-flow.ts), which opens the review panel when a message has
   findings. Protection is ON by default; OFF = "Paused" (observe only).
+  Phase 4: the restorer shows real values in place of placeholders in this chat's messages (on
+  screen only), using this chat's placeholder memory from the service worker.
 */
 import '../../src/styles/ui.css';
 
-import { ContentPingRequestSchema, type ContentPingReply } from '@safeai/shared';
+import {
+  ContentPingRequestSchema,
+  type ContentPingReply,
+  type ConversationKey,
+} from '@safeai/shared';
 import { createShadowRootUi, defineContentScript } from '#imports';
 import { createRoot, type Root } from 'react-dom/client';
 import { browser } from 'wxt/browser';
@@ -15,6 +21,7 @@ import { browser } from 'wxt/browser';
 import { chatgptAdapter } from '../../src/adapters/chatgpt';
 import type { SiteAdapter } from '../../src/adapters/types';
 import { createConversationTracker } from '../../src/content/conversation';
+import { createRestorer } from '../../src/content/restore/restorer';
 import {
   startInterceptor,
   stopInterceptor,
@@ -23,6 +30,7 @@ import {
 import { isDevOverrideActive, startPolicySource } from '../../src/content/policy-source';
 import { createSendFlow } from '../../src/content/send-flow';
 import { devLog } from '../../src/lib/logger';
+import { sendToBackground } from '../../src/lib/messaging';
 import { isProtectionEnabled, settingsItem } from '../../src/lib/storage';
 import { ensureFonts } from '../../src/ui/fonts';
 import { createBadgeStore, StatusBadge } from '../../src/ui/StatusBadge';
@@ -83,16 +91,34 @@ export default defineContentScript({
     // 4. Policy: DEFAULT_POLICY, or (dev builds only) the Playground override.
     const unwatchPolicy = await startPolicySource(refreshDevInfo);
 
-    // 5. Which conversation are we in? (Follows ChatGPT's URL changes; re-keys new chats.)
+    // 5. On-screen restoring (Phase 4): real values in place of placeholders, this chat only.
+    const restorer = createRestorer(adapter);
+    let loadToken = 0;
+    const loadChatMemory = async (key: ConversationKey) => {
+      const token = ++loadToken;
+      restorer.setEntries([]); // never show one chat's values in another
+      if (key.startsWith('chatgpt:new:')) return; // a new chat has nothing to restore yet
+      const result = await sendToBackground({ type: 'MAPPING_GET', key });
+      if (token !== loadToken) return; // you switched chats meanwhile: ignore this answer
+      // Unreadable or unavailable memory: placeholders simply stay as they are (never guess).
+      if (result.ok) restorer.setEntries(result.data.mapping.entries);
+      else devLog('Restore: memory unavailable:', result.error); // reason only
+    };
+
+    // 6. Which conversation are we in? (Follows ChatGPT's URL changes; re-keys new chats.)
     const describeChat = (key: string) =>
       key.startsWith('chatgpt:new:') ? ' · chat: new' : ` · chat: ${key.slice(8, 16)}…`;
-    const conversation = createConversationTracker(ctx, (key) => {
+    const conversation = createConversationTracker(ctx, (key, change) => {
       devInfo.chat = describeChat(key);
       refreshDevInfo();
+      // A new chat that just got its id is the SAME conversation: keep what's on screen.
+      if (change.rekeyedFrom) return;
+      void loadChatMemory(key);
     });
     devInfo.chat = describeChat(conversation.currentKey());
+    void loadChatMemory(conversation.currentKey());
 
-    // 6. Protection setting (ON by default), WATCHED so the popup switch works instantly.
+    // 7. Protection setting (ON by default), WATCHED so the popup switch works instantly.
     let mode: InterceptMode = 'replace';
     const applySettings = (enabled: boolean) => {
       mode = enabled ? 'replace' : 'observe';
@@ -103,23 +129,30 @@ export default defineContentScript({
       applySettings(isProtectionEnabled(settings)),
     );
 
-    // 7. Watch for send attempts. getMode is read at the moment of each event.
-    const flow = createSendFlow({ ctx, adapter, badge, conversation });
+    // 8. Watch for send attempts. getMode is read at the moment of each event.
+    const flow = createSendFlow({
+      ctx,
+      adapter,
+      badge,
+      conversation,
+      onPlaceholdersSaved: (entries) => restorer.addEntries(entries),
+    });
     startInterceptor(
       adapter,
       () => mode,
       (trigger, attemptMode) => flow.handleAttempt(trigger, attemptMode),
     );
 
-    // 8. Clean up if the extension is reloaded or updated (this copy of the script goes stale).
+    // 9. Clean up if the extension is reloaded or updated (this copy of the script goes stale).
     ctx.onInvalidated(() => {
       stopInterceptor();
+      restorer.stop(); // puts ChatGPT's text back and forgets the values
       browser.runtime.onMessage.removeListener(onMessage);
       unwatchSettings();
       unwatchPolicy();
     });
 
-    // 9. Dev builds: check that our selectors find ChatGPT's input box.
+    // 10. Dev builds: check that our selectors find ChatGPT's input box.
     void reportSelectors(adapter, ctx.signal, (text) => {
       devInfo.selectors = text;
       refreshDevInfo();
