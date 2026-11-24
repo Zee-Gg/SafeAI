@@ -466,3 +466,85 @@ changes, so it switches live.
 | Resetting state when a prop changes can be done during render, without an effect                                                    | `MessagePreview.tsx`        |
 | Public files used by a content script must be in `web_accessible_resources`; restrict them to the one site that needs them          | `wxt.config.ts`             |
 | A helper that _could_ log prompt text (`devLogText`) was deleted once nothing used it: rules are safest when the code enforces them | `lib/logger.ts`             |
+
+## Phase 4 — what I learned
+
+### 1. The whole round trip
+
+```
+You send ─▶ placeholders ─▶ service worker encrypts the chat's memory ─▶ IndexedDB (7 days)
+ChatGPT replies with [EMAIL_1] ─▶ content script loads THIS chat's memory ─▶ restorer shows
+the real value on screen ─▶ "Copy with real values" ─▶ hourly cleanup deletes idle chats
+```
+
+ChatGPT only ever receives placeholders. The real values come back only on your screen.
+
+### 2. Encryption with Web Crypto
+
+| Piece                    | What it means                                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| **AES-GCM**              | A standard cipher that also detects tampering: a changed record fails to decrypt instead of giving garbage |
+| **IV (12 random bytes)** | Must be new for every encryption with the same key; we make a fresh one on every write                     |
+| **Non-extractable key**  | Chrome can use the key, but no code (not even ours) can read the raw key bytes out                         |
+| **Additional data**      | The conversation key is mixed in, so a record moved under another chat's key fails to decrypt              |
+| **What it protects**     | Files on disk and backups. **Not** malware running as you inside Chrome: no browser-only design can        |
+
+### 3. Retention and cleanup
+
+- Retention counts from the **last use**, so a chat you keep using never expires.
+- `chrome.alarms` wakes the service worker every hour, even if it was asleep. Chrome may drop
+  alarms, so we re-create the alarm whenever the worker starts.
+- One "maintenance" step moves memory into whichever store is active, then deletes idle chats.
+  The same code handles the Phase 3 → vault migration and switching retention between 0 and 7.
+
+### 4. Never guess
+
+If a record can't be decrypted, SafeAI does **not** start again from `[EMAIL_1]`. That number
+might already mean someone else in this chat. So:
+
+- the record is never overwritten;
+- the message isn't sent;
+- placeholders stay on screen;
+- the popup explains what happened.
+
+A wrong value is worse than no value.
+
+### 5. Changing a React page without breaking it
+
+React remembers the DOM nodes it created. If an extension **removes or moves** them, React's
+next update fails or duplicates text. SafeAI:
+
+- only **shortens** the text inside ChatGPT's own text node, then inserts its own nodes after
+  it;
+- when ChatGPT rewrites that node (streaming!), removes its own nodes and starts again;
+- when ChatGPT removes the node, removes its own nodes too.
+
+A `MutationObserver` reports these changes. They are handled once per animation frame, so a
+fast-streaming reply doesn't cost more than the screen can show.
+
+### 6. A closed Shadow DOM hides values from the page
+
+The value is drawn inside a **closed** shadow root. ChatGPT's scripts can see our element, but
+its `textContent` is the placeholder, and they can't reach inside. Only the screen shows the
+real value. That's also why ChatGPT's copy button (and copying by hand) gives placeholders,
+and why we added "Copy with real values".
+
+### 7. Matching placeholders safely
+
+| Rule                                                  | Why                                                       |
+| ----------------------------------------------------- | --------------------------------------------------------- |
+| Label **and** number must exist in this chat's memory | `[EMAIL_9]` that we never made stays as it is             |
+| Numbers read whole                                    | `[EMAIL_10]` is never `[EMAIL_1]` + "0"                   |
+| Skip forms that may still be growing while streaming  | A half-arrived `[EMAIL_10` never flashes EMAIL_1's value  |
+| Only the variations you approved                      | Restoring a guess would put a wrong value in front of you |
+| Never in editable areas                               | A restored value there could be sent next time            |
+
+### 8. Smaller lessons
+
+| Lesson                                                                                                  | Where                       |
+| ------------------------------------------------------------------------------------------------------- | --------------------------- |
+| IndexedDB is old and event-based; three tiny promise helpers make it pleasant                           | `vault-db.ts`               |
+| TypeScript 6 types `Uint8Array` buffers strictly; Web Crypto wants `Uint8Array<ArrayBuffer>`            | `vault-db.ts`               |
+| One shared `CSSStyleSheet` (adoptedStyleSheets) styles hundreds of shadow roots cheaply                 | `restorer.ts`               |
+| A quick chat switch can return an old answer last: a token makes stale answers harmless                 | `chatgpt.content/index.tsx` |
+| "A new chat got its id" and "you switched chats" look alike in the URL, but must be handled differently | `conversation.ts`           |

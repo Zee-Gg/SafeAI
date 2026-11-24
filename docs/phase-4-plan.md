@@ -5,7 +5,7 @@
 
 # SafeAI — Phase 4 Plan
 
-> Status: **Approved** (2026-11-20). Work in progress.
+> Status: **Built** (M1–M5). Waiting for your final checks (`docs/phase-4-notes.md`).
 
 ## 1. Goal
 
@@ -242,3 +242,13 @@ Approved as proposed:
   - **Clear placeholder memory** with an inline confirmation.
 
   Dev tools keeps only the override pill. The header pill says "Phase 4 · Dev".
+
+### M5 — Polish and docs
+
+- **Privacy sweep:** every log call carries only types, counts, reasons or check results.
+  Values are written unencrypted only to the memory-only session store when retention is 0,
+  which is what 0 means.
+- **Design:**
+  - Restored values inherit ChatGPT's font and colour in both themes.
+  - The copy button and the badge use the token colours, light and dark.
+- **Docs:** LEARNING "Phase 4 — what I learned", the DECISIONS rows, and `phase-4-notes.md`.
